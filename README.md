@@ -60,3 +60,6 @@ git clone <url>
 git checkout -b <имя_ветки>
 git push origin <имя_ветки>
 ```
+
+Url брать:
+![url Git](urlGit.png)
