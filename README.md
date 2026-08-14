@@ -1,84 +1,57 @@
-# Yandex-night-vision-Detection
-Задание в рамках студкемпа "компьютерное зрение 2026 ТПУ". Ночное зрение — улучшение детекции в тёмное время суток
+# Night Vision Project
 
-### полезные команды Git:
+## Installation
 
-Репозиторий (repository) - это хранилище вашего проекта вместе с историей изменений.
-```
-# Клонирование существующего репозитория
-git clone <url>
-```
+Installation may depend on your task. The general steps are the following:
 
-Добавление файлов в индекс
-```
-# Добавление файла в индекс
-git add <файл>
+0. (Optional) Create and activate new environment using [`conda`](https://conda.io/projects/conda/en/latest/user-guide/getting-started.html) or `venv` ([`+pyenv`](https://github.com/pyenv/pyenv)).
 
-# Добавление всех измененных файлов
-git add .
-git add -A
-```
+   a. `conda` version:
 
-Коммит - это снимок состояния проекта в определенный момент времени.
-```
-# Создание коммита
-git commit -m "Сообщение коммита"
-```
+   ```bash
+   # create env
+   conda create -n project_env python=3.11
 
-Ветка - это независимая линия разработки. Ветки позволяют разрабатывать функциональность изолированно.
-```
-# Создание новой ветки
-git branch <имя_ветки>
+   # activate env
+   conda activate project_env
+   ```
 
-# Переключение на ветку
-git checkout <имя_ветки>
+   b. `venv` (`+pyenv`) version:
 
-# Создание и переключение на новую ветку
-git checkout -b <имя_ветки>
+   ```bash
+   # create env
+   ~/.pyenv/versions/3.11/bin/python3 -m venv project_env
 
-# Просмотр всех веток
-git branch
-```
+   # alternatively, using default python version
+   python3 -m venv project_env
 
-Проверка статуса
-```
-# Проверка статуса репозитория
-git status
-```
+   # activate env
+   source project_env/bin/activate
+   ```
 
-Работа с удаленными репозиториями
-```
-# Отправка изменений
-git push origin <имя_ветки>
+1. Install all required packages
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Install `pre-commit`:
+   ```bash
+   pre-commit install
+   ```
+
+## How To Use
+
+To train a model, run the following command:
+
+```bash
+python3 train.py -cn=CONFIG_NAME HYDRA_CONFIG_ARGUMENTS
 ```
 
-остальное: [Шпаргалка Git](https://gist.github.com/dmitry-osin/c9aab2c594050c72e56d56eafbb925d2)
+Where `CONFIG_NAME` is a config from `src/configs` and `HYDRA_CONFIG_ARGUMENTS` are optional arguments.
 
-Как я создал свою ветку:
-```
-git clone <url>
-# Потом зайти в папку с проектом и вводить команды ниже
-git checkout -b <имя_ветки>
-git push origin <имя_ветки>
-```
+To run inference (evaluate the model or save predictions):
 
-Url брать:
-![url Git](urlGit.png)
-
-
-### 🗂️ Git Structure(По веткам):
-```
-main - основная ветка её не трогаем она для сдачи проекта
-
-develop - ветка для будущего мёрджа(объединения всех веток)
-
-Synthetic - ветка для синтетики (Артём)
-
-3lc - ветка для метода 3LC(разметка данных, дообучение и т.д, сердце проекта с него будет стартовать код) (Дамир)
-
-clustering-dino - ветка для Dino(или другой) модели, которая будет забирать часть разнородных данных для обучения и валидации. (Александр)
-
-augmentations - ветка с обзором всех аугментаций, подходов и гипотез которые пробовали для улучшения качества. (Гоша)
-
-model-benchmark - ветка с результатами и сравнением моделей которые пробовали(сравнивать будем до/после). (Никита)
+```bash
+python3 inference.py HYDRA_CONFIG_ARGUMENTS
 ```
