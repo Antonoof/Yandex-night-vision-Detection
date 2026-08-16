@@ -110,15 +110,26 @@ def describe_split_balance(train_records, val_records):
     Args:
         train_records (list[dict]): records from load_records(..., "train").
         val_records (list[dict]): records from load_records(..., "val").
+    Returns:
+        stats (dict): the same numbers, for callers that want to plot or
+            table them instead of reading the log:
+            ``{"splits": {split: {"frames", "boxes", "timeofday"}},
+               "per_class": {class_name: {"night", "day", "night_share"}}}``.
     """
+    splits = {}
     for split, part in (("train", train_records), ("val", val_records)):
         tod = Counter(r["timeofday"] for r in part)
+        splits[split] = {
+            "frames": len(part),
+            "boxes": sum(len(r["boxes"]) for r in part),
+            "timeofday": dict(tod),
+        }
         logger.info(
             "%-5s: %6d frames  %s  boxes=%7d",
             split,
-            len(part),
-            dict(tod),
-            sum(len(r["boxes"]) for r in part),
+            splits[split]["frames"],
+            splits[split]["timeofday"],
+            splits[split]["boxes"],
         )
 
     per_class = defaultdict(Counter)
@@ -129,10 +140,14 @@ def describe_split_balance(train_records, val_records):
     logger.info(
         "%-14s %7s %7s %11s   (train+val)", "class", "night", "day", "night share"
     )
+    balance = {}
     for name, c in sorted(per_class.items(), key=lambda kv: -sum(kv[1].values())):
         n, d = c["night"], c["daytime"]
         share = n / (n + d) if (n + d) else 0.0
+        balance[name] = {"night": n, "day": d, "night_share": share}
         logger.info("%-14s %7d %7d %9.1f%%", name, n, d, share * 100)
+
+    return {"splits": splits, "per_class": balance}
 
 
 def subsample(records, limit, seed):

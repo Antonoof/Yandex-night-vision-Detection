@@ -15,7 +15,7 @@ import hydra
 from hydra.utils import instantiate
 
 from src.datasets import bdd100k
-from src.logger import log_evaluation_run, setup_logging
+from src.logger import CometRunLogger, log_evaluation_run, setup_logging
 from src.metrics import evaluate_detector, print_results
 from src.model import log_head_info
 from src.utils.init_utils import resolve_device, set_random_seed
@@ -123,54 +123,74 @@ def main(config):
             enabled=USE_COMET,
         )
 
-    # fresh COCO weights: if eval_zero_shot ran, "pretrained" was already
-    # touched by inference, so we reload the model before training
-    model = instantiate(config.model)
-    results = model.train(
-        data=str(data_yaml),
-        epochs=config.trainer.epochs,
-        imgsz=config.trainer.imgsz,
-        batch=config.trainer.batch,
-        freeze=config.trainer.freeze or None,
-        seed=config.trainer.seed,
-        device=device,
-        project=str(ROOT_PATH / config.trainer.save_dir),
-        name=config.trainer.run_name,
-        exist_ok=True,
-        patience=config.trainer.patience,
-        workers=config.trainer.workers,
-        verbose=True,
-        **config.augment,
-    )
-
-    weights_save_dir = getattr(results, "save_dir", None) or model.trainer.save_dir
-    best_weights = Path(weights_save_dir) / "weights" / "best.pt"
-    logger.info("best checkpoint: %s", best_weights)
-
-    best = instantiate(config.model, weights=str(best_weights))
-    ft_night = evaluate_detector(
-        best, night_records, desc="fine-tuned night", **eval_kwargs
-    )
-    ft_day = evaluate_detector(best, day_records, desc="fine-tuned day", **eval_kwargs)
-    print_results(
-        "B. FINE-TUNED: YOLO with a new head, fine-tuned on BDD100K", ft_night, ft_day
-    )
-
-    log_evaluation_run(
-        "01_finetune",
+    # One experiment for the whole fine-tuning run: the per-epoch curves
+    # (losses, lr, grad_norm, per-class AP/R) and the final night/day
+    # metrics belong together, otherwise neither half can be read alone.
+    with CometRunLogger(
+        config.trainer.run_name,
         ["stage:baseline", "method:finetune-head"],
-        ft_night,
-        ft_day,
         {
             "model": config.model.weights,
             "epochs": config.trainer.epochs,
             "batch": config.trainer.batch,
+            "imgsz": config.trainer.imgsz,
             "freeze": config.trainer.freeze,
+            "seed": config.trainer.seed,
+            "n_train": len(train_used),
+            "n_val_night": len(night_records),
+            "n_val_day": len(day_records),
+            **{f"augment.{k}": v for k, v in config.augment.items()},
         },
         project_name=config.writer.project_name,
         dataset_version=config.writer.dataset_version,
         enabled=USE_COMET,
-    )
+    ) as comet_run:
+        # fresh COCO weights: if eval_zero_shot ran, "pretrained" was already
+        # touched by inference, so we reload the model before training
+        model = instantiate(config.model)
+        comet_run.attach(model)
+
+        results = model.train(
+            data=str(data_yaml),
+            epochs=config.trainer.epochs,
+            imgsz=config.trainer.imgsz,
+            batch=config.trainer.batch,
+            freeze=config.trainer.freeze or None,
+            seed=config.trainer.seed,
+            device=device,
+            project=str(ROOT_PATH / config.trainer.save_dir),
+            name=config.trainer.run_name,
+            exist_ok=True,
+            patience=config.trainer.patience,
+            workers=config.trainer.workers,
+            verbose=True,
+            **config.augment,
+        )
+
+        weights_save_dir = getattr(results, "save_dir", None) or model.trainer.save_dir
+        best_weights = Path(weights_save_dir) / "weights" / "best.pt"
+        logger.info("best checkpoint: %s", best_weights)
+
+        best = instantiate(config.model, weights=str(best_weights))
+        # proof that the head was rebuilt: nc goes 80 (COCO) -> 8 (ours), and
+        # the cv3 branch's output channels follow. Compare with the head dump
+        # logged above for the pretrained model.
+        log_head_info(best)
+
+        ft_night = evaluate_detector(
+            best, night_records, desc="fine-tuned night", **eval_kwargs
+        )
+        ft_day = evaluate_detector(
+            best, day_records, desc="fine-tuned day", **eval_kwargs
+        )
+        print_results(
+            "B. FINE-TUNED: YOLO with a new head, fine-tuned on BDD100K",
+            ft_night,
+            ft_day,
+        )
+
+        comet_run.log_eval("night", ft_night)
+        comet_run.log_eval("day", ft_day)
 
     metrics = {"fine-tuned/night": ft_night, "fine-tuned/day": ft_day}
     if config.trainer.eval_zero_shot:
