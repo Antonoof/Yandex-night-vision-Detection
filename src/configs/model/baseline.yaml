@@ -1,4 +1,2 @@
-_target_: src.model.BaselineModel
-n_feats: 1024
-fc_hidden: 512
-n_class: 10
+_target_: src.model.build_model
+weights: yolov8n.pt

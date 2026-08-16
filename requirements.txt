@@ -1,15 +1,20 @@
-torch==2.2.0
-torchvision==0.17.0
-torchmetrics
-numpy==1.26.4
+# torch/torchvision are intentionally NOT pinned to an exact version: on
+# Kaggle and most cloud GPU images a CUDA-linked build is already installed,
+# and pinning would force pip to reinstall a (likely CPU-only) version over
+# it. Locally, install torch first via https://pytorch.org/get-started for
+# your platform/CUDA version, then `pip install -r requirements.txt`.
+torch>=2.2
+torchvision>=0.17
+torchmetrics>=1.3
+numpy>=1.26,<3
 tqdm
 matplotlib
-pandas
+pyyaml
+ultralytics>=8.1
+pycocotools>=2.0.7
 comet_ml
-hydra-core
+hydra-core>=1.3
 
 black
 isort
 pre-commit
-
-comet_ml

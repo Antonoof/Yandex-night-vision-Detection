@@ -1,13 +1,16 @@
+import json
+import logging
 import warnings
 
 import hydra
-import torch
 from hydra.utils import instantiate
 
-from src.datasets.data_utils import get_dataloaders
-from src.trainer import Inferencer
-from src.utils.init_utils import set_random_seed
+from src.datasets import bdd100k
+from src.logger import setup_logging
+from src.metrics import evaluate_detector, print_results
+from src.utils.init_utils import resolve_device, set_random_seed
 from src.utils.io_utils import ROOT_PATH
+from src.utils.visualize import draw_predictions
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -15,52 +18,78 @@ warnings.filterwarnings("ignore", category=UserWarning)
 @hydra.main(version_base=None, config_path="src/configs", config_name="inference")
 def main(config):
     """
-    Main script for inference. Instantiates the model, metrics, and
-    dataloaders. Runs Inferencer to calculate metrics and (or)
-    save predictions.
+    Main script for inference. Loads a trained checkpoint and evaluates it
+    on the BDD100K validation split, separately for night and day frames.
 
     Args:
         config (DictConfig): hydra experiment config.
     """
     set_random_seed(config.inferencer.seed)
 
-    if config.inferencer.device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    else:
-        device = config.inferencer.device
+    save_path = ROOT_PATH / config.inferencer.save_path
+    save_path.mkdir(parents=True, exist_ok=True)
+    setup_logging(save_path)
+    logger = logging.getLogger("inference")
 
-    # setup data_loader instances
-    # batch_transforms should be put on device
-    dataloaders, batch_transforms = get_dataloaders(config, device)
+    device = resolve_device(config.inferencer.device)
 
-    # build model architecture, then print to console
-    model = instantiate(config.model).to(device)
-    print(model)
-
-    # get metrics
-    metrics = instantiate(config.metrics)
-
-    # save_path for model predictions
-    save_path = ROOT_PATH / "data" / "saved" / config.inferencer.save_path
-    save_path.mkdir(exist_ok=True, parents=True)
-
-    inferencer = Inferencer(
-        model=model,
-        config=config,
-        device=device,
-        dataloaders=dataloaders,
-        batch_transforms=batch_transforms,
-        save_path=save_path,
-        metrics=metrics,
-        skip_model_load=False,
+    data_root = bdd100k.find_dataset_root(ROOT_PATH / config.datasets.input_dir)
+    val_records = bdd100k.load_records(data_root, "val")
+    night_records = [r for r in val_records if r["timeofday"] == "night"]
+    day_records = [r for r in val_records if r["timeofday"] == "daytime"]
+    logger.info(
+        "val split: night=%d frames, day=%d frames",
+        len(night_records),
+        len(day_records),
     )
 
-    logs = inferencer.run_inference()
+    model = instantiate(config.model, weights=config.inferencer.weights)
 
-    for part in logs.keys():
-        for key, value in logs[part].items():
-            full_key = part + "_" + key
-            print(f"    {full_key:15s}: {value}")
+    eval_kwargs = dict(
+        imgsz=config.inferencer.imgsz,
+        conf=config.metrics.conf,
+        iou=config.metrics.iou,
+        max_det=config.metrics.max_det,
+        device=device,
+        batch_size=config.inferencer.batch,
+    )
+    night_metrics = evaluate_detector(model, night_records, desc="night", **eval_kwargs)
+    day_metrics = evaluate_detector(model, day_records, desc="day", **eval_kwargs)
+    print_results(
+        f"Evaluation: {config.inferencer.weights}", night_metrics, day_metrics
+    )
+
+    results_path = save_path / "results.json"
+    results_path.write_text(
+        json.dumps(
+            {
+                "weights": config.inferencer.weights,
+                "night": night_metrics,
+                "day": day_metrics,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    logger.info("results saved to %s", results_path)
+
+    if config.inferencer.save_visualizations:
+        fixed_samples = sorted(night_records, key=lambda r: r["name"])[
+            : config.inferencer.num_visualization_samples
+        ]
+        if not fixed_samples:
+            logger.info("no night frames to visualize, skipping predictions.png")
+        else:
+            predictions_path = save_path / "predictions.png"
+            draw_predictions(
+                model,
+                fixed_samples,
+                predictions_path,
+                imgsz=config.inferencer.imgsz,
+                conf=config.inferencer.visualization_conf,
+                device=device,
+            )
+            logger.info("visualizations saved to %s", predictions_path)
 
 
 if __name__ == "__main__":

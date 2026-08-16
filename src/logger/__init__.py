@@ -1,3 +1,7 @@
-from src.logger.cometml import CometMLWriter
+from src.logger.comet_writer import log_evaluation_run
 from src.logger.logger import setup_logging
-from src.logger.wandb import WandBWriter
+
+__all__ = [
+    "log_evaluation_run",
+    "setup_logging",
+]

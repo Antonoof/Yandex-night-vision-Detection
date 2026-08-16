@@ -1,5 +1,6 @@
-from src.model.baseline_model import BaselineModel
+from src.model.yolo_model import build_model, log_head_info
 
 __all__ = [
-    "BaselineModel",
+    "build_model",
+    "log_head_info",
 ]

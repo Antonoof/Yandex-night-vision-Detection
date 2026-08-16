@@ -1,0 +1,3 @@
+project_name: night-vision-detection
+# bump this whenever the dataset itself changes
+dataset_version: nvpd-bdd100k-day-night
