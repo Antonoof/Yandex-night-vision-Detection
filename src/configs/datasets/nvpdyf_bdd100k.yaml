@@ -1,0 +1,5 @@
+# root to search for a folder with images/, labels/, data.yaml (nested
+# dirs are OK - on Kaggle point this at /kaggle/input itself, see README)
+input_dir: data/nvpdyf_bdd100k
+# RNG seed used when sampling scenes to draw for the EDA notebook
+sample_seed: 42

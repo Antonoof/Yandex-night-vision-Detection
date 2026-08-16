@@ -99,6 +99,19 @@ dataset. `src/datasets/bdd100k.py` converts it into the YOLO-format dataset
 (`images/`, `labels/`, `data.yaml`) that `ultralytics` expects, written to
 `datasets.work_dir` (default `data/bdd_yolo`).
 
+### nvpdyf-bdd100k (EDA baseline)
+
+`nvpdyf-bdd100k` (mounted at `/kaggle/input/nvpdyf-bdd100k` on Kaggle) is a
+newer version of the same data, already pre-converted to the YOLO layout
+(`images/{train,val,test}`, `labels/{train,val,test}`, `data.yaml`,
+7 classes) - so no conversion step is needed for it, unlike the dataset
+above. `src/datasets/nvpdyf_bdd100k.py` just locates it, parses the label
+files, and computes EDA stats (class distribution, missing/empty/orphan
+label checks). [`dataset_baseline.ipynb`](dataset_baseline.ipynb) walks
+through that plus drawing a couple of ground-truth scenes - open it for
+the class-balance/data-quality picture before training against this
+dataset version.
+
 ## How To Use
 
 To train (fine-tune the YOLO head and evaluate night vs. day), run:
@@ -146,11 +159,13 @@ Results are written under `saved/eval/<inferencer.save_path>/`.
 ## Project layout
 
 ```
-src/datasets/bdd100k.py   BDD100K -> YOLO dataset conversion, class balance
-src/model/yolo_model.py   ultralytics YOLO wrapper + head diagnostics
-src/metrics/detection.py  COCO-style mAP, computed separately for night/day
-src/logger/comet_writer.py  Comet ML run logging
-src/utils/visualize.py    prediction visualization
-src/configs/              Hydra configs (baseline.yaml / inference.yaml + subconfigs)
-train.py / inference.py   entry points
+src/datasets/bdd100k.py        BDD100K -> YOLO dataset conversion, class balance
+src/datasets/nvpdyf_bdd100k.py nvpdyf-bdd100k (pre-converted) EDA: stats, sampling
+src/model/yolo_model.py        ultralytics YOLO wrapper + head diagnostics
+src/metrics/detection.py       COCO-style mAP, computed separately for night/day
+src/logger/comet_writer.py     Comet ML run logging
+src/utils/visualize.py         prediction / ground-truth visualization
+src/configs/                   Hydra configs (baseline.yaml / inference.yaml + subconfigs)
+train.py / inference.py        entry points
+dataset_baseline.ipynb         nvpdyf-bdd100k EDA notebook (dataset info + sample scenes)
 ```
