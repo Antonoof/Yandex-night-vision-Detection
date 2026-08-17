@@ -37,7 +37,9 @@ import random
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import numpy as np
 import yaml
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +171,8 @@ def collect_stats(data_root, split, tod_map=None):
             describe_daynight has nothing to show.
     Returns:
         stats (dict): counts and raw box list for the split - see the keys
-            below; consumed by describe_dataset/describe_daynight and by
-            plotting code.
+            below; consumed by describe_dataset/describe_daynight/
+            describe_box_geometry and by plotting code.
     """
     data_root = Path(data_root)
     images_dir = data_root / "images" / split
@@ -194,6 +196,7 @@ def collect_stats(data_root, split, tod_map=None):
         "errors": [],
         "n_images_by_tod": Counter(),
         "class_counts_by_tod": defaultdict(Counter),
+        "box_areas_by_tod": defaultdict(list),
     }
 
     for stem in images.keys() & labels.keys():
@@ -205,10 +208,11 @@ def collect_stats(data_root, split, tod_map=None):
         stats["objects_per_image"].append(len(boxes))
         if not boxes:
             stats["empty_labels"].append(stem)
-        for cls, *_ in boxes:
+        for cls, cx, cy, w, h in boxes:
             stats["class_counts"][cls] += 1
             stats["images_per_class"][cls].add(stem)
             stats["class_counts_by_tod"][tod][cls] += 1
+            stats["box_areas_by_tod"][tod].append(w * h)
         stats["boxes"].extend(boxes)
 
     return stats
@@ -241,6 +245,17 @@ def describe_dataset(stats_by_split, classes):
                 s["errors"][0],
             )
 
+    opi = [n for s in stats_by_split.values() for n in s["objects_per_image"]]
+    if opi:
+        opi_sorted = sorted(opi)
+        logger.info(
+            "objects/image (all splits): avg=%.2f median=%d min=%d max=%d",
+            sum(opi) / len(opi),
+            opi_sorted[len(opi_sorted) // 2],
+            opi_sorted[0],
+            opi_sorted[-1],
+        )
+
     total = Counter()
     for s in stats_by_split.values():
         total.update(s["class_counts"])
@@ -252,6 +267,16 @@ def describe_dataset(stats_by_split, classes):
             for split, s in stats_by_split.items()
         )
         logger.info("%-14s %8d  %s", name, total[cid], per_split)
+
+    nonzero = [c for c in total.values() if c > 0]
+    if len(nonzero) > 1:
+        logger.info("class imbalance (max/min): %.1fx", max(nonzero) / min(nonzero))
+        if len(nonzero) < len(classes):
+            logger.warning(
+                "%d/%d classes have 0 boxes across every split",
+                len(classes) - len(nonzero),
+                len(classes),
+            )
 
 
 def describe_daynight(stats_by_split, classes):
@@ -299,6 +324,153 @@ def describe_daynight(stats_by_split, classes):
         n, d = total_by_tod["night"][cid], total_by_tod["daytime"][cid]
         share = n / (n + d) if (n + d) else 0.0
         logger.info("%-14s %8d %8d %10.1f%%", name, n, d, share * 100)
+
+
+# All BDD100K frames share this size (see check_resolutions to verify that
+# holds for this dataset too) - needed to convert COCO's small/medium/large
+# thresholds, which are defined in raw pixels, into a share of frame area,
+# since boxes here are normalized rather than in pixels.
+IMG_W, IMG_H = 1280, 720
+
+# COCO's canonical object-size cutoffs: small <32x32px, large >96x96px.
+SMALL_AREA = (32 * 32) / (IMG_W * IMG_H)
+LARGE_AREA = (96 * 96) / (IMG_W * IMG_H)
+
+
+def _size_shares(areas):
+    """(share small, share medium, share large) for an array of box areas."""
+    areas = np.asarray(areas)
+    n = len(areas)
+    if not n:
+        return 0.0, 0.0, 0.0
+    small = float((areas < SMALL_AREA).sum()) / n
+    large = float((areas >= LARGE_AREA).sum()) / n
+    return small, 1.0 - small - large, large
+
+
+def box_areas_by_timeofday(stats_by_split):
+    """Pool collect_stats' per-split box_areas_by_tod into one dict.
+
+    Args:
+        stats_by_split (dict[str, dict]): split name -> collect_stats
+            output, computed with a tod_map (otherwise everything is
+            under UNKNOWN_TOD).
+    Returns:
+        by_tod (dict[str, list[float]]): timeofday value -> normalized box
+            areas (w * h), pooled across every split. Used by
+            describe_box_geometry, and directly by notebook plotting code
+            that wants the raw areas rather than just the small/medium/
+            large summary (e.g. a day-vs-night size histogram).
+    """
+    by_tod = defaultdict(list)
+    for s in stats_by_split.values():
+        for tod, areas in s["box_areas_by_tod"].items():
+            by_tod[tod].extend(areas)
+    return dict(by_tod)
+
+
+def describe_box_geometry(stats_by_split):
+    """Log object-size and aspect-ratio stats, overall and (if a tod_map
+    was passed to collect_stats) split by day/night.
+
+    Small objects are typically the hardest to detect, and are a natural
+    suspect for *why* a detector degrades at night (poor lighting shrinks
+    the range at which anything is visible at all) - the day/night part of
+    this is directly relevant to the project's actual question, not just
+    generic EDA.
+
+    Args:
+        stats_by_split (dict[str, dict]): split name -> collect_stats output.
+    """
+    all_boxes = [b for s in stats_by_split.values() for b in s["boxes"]]
+    if not all_boxes:
+        logger.warning("no boxes to compute geometry stats from")
+        return
+
+    areas = np.array([w * h for _, _, _, w, h in all_boxes])
+    small, medium, large = _size_shares(areas)
+    logger.info(
+        "box size (all): small(<32x32px)=%.1f%%  medium(32x32-96x96px)=%.1f%%  large(>96x96px)=%.1f%%",
+        small * 100,
+        medium * 100,
+        large * 100,
+    )
+
+    ratios = np.array([w / h for _, _, _, w, h in all_boxes if h > 0])
+    logger.info(
+        "aspect ratio w/h (all): median=%.2f  p5=%.2f  p95=%.2f",
+        np.median(ratios),
+        np.percentile(ratios, 5),
+        np.percentile(ratios, 95),
+    )
+
+    by_tod = box_areas_by_timeofday(stats_by_split)
+    real_tods = set(by_tod) - {UNKNOWN_TOD}
+    if len(real_tods) < 2:
+        return  # no (or one-sided) timeofday info - nothing to compare
+
+    logger.info("box size by time of day:")
+    for tod in sorted(real_tods, key=lambda t: -len(by_tod[t])):
+        tod_areas = np.array(by_tod[tod])
+        small, medium, large = _size_shares(tod_areas)
+        logger.info(
+            "  %-8s n=%6d  small=%5.1f%%  medium=%5.1f%%  large=%5.1f%%  median_area=%.3f%%",
+            tod,
+            len(tod_areas),
+            small * 100,
+            medium * 100,
+            large * 100,
+            np.median(tod_areas) * 100,
+        )
+
+
+def check_resolutions(data_root, splits, sample_size=2000, seed=42):
+    """Sample images and count their (width, height).
+
+    A cheap data-quality check: this dataset is expected to be uniformly
+    1280x720 (the native BDD100K frame size) - a surprise here would
+    silently break any downstream code that assumes a fixed frame size, so
+    it is worth knowing about early rather than mid-training.
+
+    Args:
+        data_root (str | Path): folder returned by find_dataset_root.
+        splits (list[str]): splits to sample from.
+        sample_size (int): max number of images to open - opening every
+            image in a large dataset just for this would be slow, and a
+            random sample is enough to catch a systematic resolution mix.
+        seed (int): RNG seed, for a reproducible sample.
+    Returns:
+        counts (Counter): (width, height) -> number of sampled images.
+    """
+    data_root = Path(data_root)
+    paths = [
+        p
+        for split in splits
+        for p in (data_root / "images" / split).iterdir()
+        if p.suffix.lower() in IMG_EXTS
+    ]
+    rng = random.Random(seed)
+    sample = rng.sample(paths, min(sample_size, len(paths)))
+
+    counts = Counter()
+    for p in sample:
+        with Image.open(p) as img:
+            counts[img.size] += 1
+    return counts
+
+
+def describe_resolutions(counts):
+    """Log the most common (width, height) values from check_resolutions.
+
+    Args:
+        counts (Counter): output of check_resolutions.
+    """
+    n = sum(counts.values())
+    if not n:
+        return
+    logger.info("resolutions (%d sampled):", n)
+    for (w, h), c in counts.most_common(5):
+        logger.info("  %dx%d: %d (%.1f%%)", w, h, c, 100 * c / n)
 
 
 def sample_scenes(data_root, splits, n, seed, with_boxes_only=True, tod=None, tod_map=None):

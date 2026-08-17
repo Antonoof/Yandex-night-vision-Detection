@@ -106,11 +106,13 @@ newer version of the same data, already pre-converted to the YOLO layout
 (`images/{train,val,test}`, `labels/{train,val,test}`, `data.yaml`,
 7 classes) - so no conversion step is needed for it, unlike the dataset
 above. `src/datasets/nvpdyf_bdd100k.py` just locates it, parses the label
-files, and computes EDA stats (class distribution, day/night distribution,
-missing/empty/orphan label checks). [`dataset_baseline.ipynb`](dataset_baseline.ipynb)
-walks through that plus drawing a couple of ground-truth scenes (including
-one explicit day/night pair) - open it for the class-balance/data-quality
-picture before training against this dataset version.
+files, and computes EDA stats (class distribution, class imbalance,
+objects/image, box size and aspect ratio - overall and split by day/night,
+day/night distribution, resolution check, missing/empty/orphan label
+checks). [`dataset_baseline.ipynb`](dataset_baseline.ipynb) walks through
+that plus drawing a couple of ground-truth scenes (including one explicit
+day/night pair) - open it for the class-balance/data-quality picture before
+training against this dataset version.
 
 The original YOLO-format dataset didn't record per-image day/night, so a
 sidecar `timeofday.csv` (`image,timeofday`, e.g.
