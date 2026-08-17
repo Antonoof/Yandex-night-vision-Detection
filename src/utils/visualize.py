@@ -34,7 +34,8 @@ def draw_ground_truth(records, classes, out_path=None, cols=1):
         records (list[dict]): records from
             src.datasets.nvpdyf_bdd100k.sample_scenes, i.e. dicts with
             "name", "path", "boxes" (list of (class_id, cx, cy, w, h),
-            normalized [0, 1]).
+            normalized [0, 1]), and optionally "split"/"timeofday" (shown
+            in the title when present).
         classes (dict[int, str]): class id -> name, e.g. from
             src.datasets.nvpdyf_bdd100k.load_classes.
         out_path (str | Path | None): if given, save the figure here
@@ -60,7 +61,11 @@ def draw_ground_truth(records, classes, out_path=None, cols=1):
                 )
             )
             ax.text(x1, y1 - 4, classes[cls], color=color, fontsize=8, weight="bold")
-        ax.set_title(f"{r['name']}  ({len(r['boxes'])} objects)")
+        # split/timeofday are optional (only present when records came from
+        # sample_scenes with a tod_map) - fall back to just name + count
+        tag = " ".join(str(r[k]) for k in ("split", "timeofday") if r.get(k))
+        title = f"{r['name']}" + (f"  [{tag}]" if tag else "")
+        ax.set_title(f"{title}  ({len(r['boxes'])} objects)")
         ax.axis("off")
     for ax in axes[len(records) :]:
         ax.axis("off")
