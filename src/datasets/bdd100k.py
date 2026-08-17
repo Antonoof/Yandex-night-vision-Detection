@@ -20,15 +20,14 @@ CLASSES = [
     "car",
     "motorcycle",
     "bus",
-    "train",
     "truck",
     "traffic light",
 ]
 CLASS_TO_ID = {name: i for i, name in enumerate(CLASSES)}
 
-# COCO-80 class index -> our class index. The gaps (4=airplane, 8=boat, ...)
+# COCO-80 class index -> our class index. The gaps (4=airplane, 6=train, 8=boat, ...)
 # are COCO classes that BDD100K does not have.
-COCO80_TO_OURS = {0: 0, 1: 1, 2: 2, 3: 3, 5: 4, 6: 5, 7: 6, 9: 7}
+COCO80_TO_OURS = {0: 0, 1: 1, 2: 2, 3: 3, 5: 4, 7: 5, 9: 6}
 
 IMG_W, IMG_H = 1280, 720  # all BDD100K frames share this size
 
