@@ -13,7 +13,8 @@ In the notebook's right-hand panel:
 2. **Internet** → **On**. Off by default, and three separate things need it:
    `git clone`, ultralytics downloading `yolov8n.pt`, and Comet. A failure
    here looks like a DNS/connection error, not a permissions error.
-3. **Add Input** → the `nvpd-bdd100k` dataset (images + `train/val/test.json`).
+3. **Add Input** → the `nvpdyf-bdd100k` dataset (`images/`, `labels/`,
+   `data.yaml`, `timeofday.csv`).
 4. *(optional)* **Add-ons → Secrets** → add `COMET_API_KEY`. Without it the
    run still works, it just skips tracking.
 
@@ -96,15 +97,20 @@ What the log should show:
 * `train: ... frames | val: night=1860, day=7354`
 * `nc (classes): 80` before training, then
   `Transferred 322/355 items from pretrained weights`, then
-  `nc (classes): 8` after — the head swap, see
+  `nc (classes): 7` after — the head swap, see
   [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md).
 * two side-by-side night/day tables.
 
 If `find_dataset_root` raises, find where the data actually landed:
 
 ```python
-!find /kaggle/input -maxdepth 5 -iname val.json
+!find /kaggle/input -maxdepth 5 -iname timeofday.csv
 ```
+
+If it raises about class order instead, the dataset's `data.yaml` disagrees
+with `CLASSES` in `src/datasets/bdd100k.py`. Do not "fix" it by editing one
+of them in isolation — `CLASSES` and `COCO80_TO_OURS` must change together,
+and metrics from different class orders are not comparable.
 
 ## 5. The real run
 

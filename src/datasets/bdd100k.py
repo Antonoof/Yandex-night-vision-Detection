@@ -1,6 +1,13 @@
-"""BDD100K -> YOLO dataset preparation for the night-vision detection baseline."""
+"""NVPDYF BDD100K dataset access for the night-vision detection baseline.
 
-import json
+The dataset already ships in YOLO format (``images/``, ``labels/``,
+``data.yaml``), so nothing is converted here - we only read it into records
+that the rest of the project understands. Time of day, which every night/day
+split in this project depends on, is not part of the YOLO format and lives in
+a separate ``timeofday.csv``.
+"""
+
+import csv
 import logging
 import random
 import shutil
@@ -13,73 +20,118 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
-# Our classes, in the order they appear in COCO.
+# Class order is dictated by the dataset's own data.yaml (alphabetical), NOT by
+# COCO order - the label files store these ids. Changing this list without
+# rebuilding the dataset silently relabels everything.
 CLASSES = [
-    "person",
     "bicycle",
+    "bus",
     "car",
     "motorcycle",
-    "bus",
-    "truck",
+    "person",
     "traffic light",
+    "truck",
 ]
 CLASS_TO_ID = {name: i for i, name in enumerate(CLASSES)}
 
-# COCO-80 class index -> our class index. The gaps (4=airplane, 6=train, 8=boat, ...)
-# are COCO classes that BDD100K does not have.
-COCO80_TO_OURS = {0: 0, 1: 1, 2: 2, 3: 3, 5: 4, 7: 5, 9: 6}
+# COCO-80 class index -> our class index, used to read zero-shot predictions
+# from a COCO-pretrained model. Hardcoded on purpose (COCO order is fixed), so
+# it does NOT follow CLASSES automatically - see _check_class_names.
+COCO80_TO_OURS = {0: 4, 1: 0, 2: 2, 3: 3, 5: 1, 7: 6, 9: 5}
 
 IMG_W, IMG_H = 1280, 720  # all BDD100K frames share this size
 
+TIMEOFDAY_CSV = "timeofday.csv"
+
 
 def find_dataset_root(input_dir):
-    """Find the folder that has images/ and val.json next to each other.
+    """Find the folder that has data.yaml, images/ and timeofday.csv together.
 
     Args:
         input_dir (str | Path): root to search under; the dataset can be
             nested arbitrarily deep inside it (e.g. Kaggle's /kaggle/input).
     Returns:
-        data_root (Path): the folder containing images/ and the *.json files.
+        data_root (Path): the folder containing images/, labels/, data.yaml.
     """
     input_dir = Path(input_dir)
-    for candidate in input_dir.rglob("val.json"):
-        if (candidate.parent / "images").is_dir():
-            return candidate.parent
+    for candidate in input_dir.rglob("data.yaml"):
+        root = candidate.parent
+        if (root / "images").is_dir() and (root / TIMEOFDAY_CSV).is_file():
+            _check_class_names(root)
+            return root
     raise FileNotFoundError(
-        f"Could not find the dataset under {input_dir}: need a folder that "
-        "has both an images/ subfolder and a val.json next to it."
+        f"Could not find the dataset under {input_dir}: need a folder that has "
+        f"an images/ subfolder, a data.yaml and a {TIMEOFDAY_CSV} next to it."
     )
 
 
+def _check_class_names(data_root):
+    """Fail loudly if the dataset's class order differs from CLASSES.
+
+    The label files store bare integer ids, so a reordered data.yaml does not
+    break anything visibly - it just relabels every box (trucks counted as
+    traffic lights, and so on) and quietly corrupts every metric. This is the
+    one failure mode that has already bitten this project once, so it is
+    checked on every run rather than trusted.
+    """
+    names = yaml.safe_load((data_root / "data.yaml").read_text()).get("names")
+    if isinstance(names, dict):
+        names = [names[key] for key in sorted(names)]
+    if list(names or []) != CLASSES:
+        raise ValueError(
+            f"{data_root / 'data.yaml'} lists classes {names}, but "
+            f"src/datasets/bdd100k.py expects {CLASSES}. Fix CLASSES *and* "
+            "COCO80_TO_OURS together, then re-measure the baseline - metrics "
+            "from different class orders are not comparable."
+        )
+
+
+def _load_timeofday(data_root):
+    """Read timeofday.csv into {"<split>/<file name>": timeofday}."""
+    with open(data_root / TIMEOFDAY_CSV, newline="") as f:
+        return {row["image"]: row["timeofday"] for row in csv.DictReader(f)}
+
+
 def load_records(data_root, split):
-    """Read <split>.json and convert the annotations to YOLO format.
+    """Read one split's YOLO labels and attach each frame's time of day.
 
     Args:
         data_root (str | Path): folder returned by find_dataset_root.
         split (str): "train", "val", or "test".
     Returns:
         records (list[dict]): one dict per frame, with "name", "path",
-            "timeofday", and "boxes" (list of (class_id, cx, cy, w, h)).
+            "timeofday", and "boxes" (list of (class_id, cx, cy, w, h),
+            normalized to the frame size).
     """
     data_root = Path(data_root)
     images_dir = data_root / "images" / split
-    split_json = data_root / f"{split}.json"
+    labels_dir = data_root / "labels" / split
+
+    # timeofday.csv is the source of truth for a split's contents: it covers
+    # every frame, while a label file is absent for frames with no objects.
+    timeofday = _load_timeofday(data_root)
+    prefix = f"{split}/"
 
     records = []
-    for r in json.loads(split_json.read_text()):
+    for image_rel in sorted(k for k in timeofday if k.startswith(prefix)):
+        name = image_rel[len(prefix) :]
+        label_path = labels_dir / f"{Path(name).stem}.txt"
+
         boxes = []
-        for lab in r.get("labels") or []:
-            cid = CLASS_TO_ID.get(lab.get("coco_category"))
-            if cid is None:  # class outside our list - skip
-                continue
-            # box_yolo is already [cx, cy, w, h], normalized to the frame size.
-            cx, cy, w, h = lab["box_yolo"]
-            boxes.append((cid, cx, cy, w, h))
+        if label_path.is_file():
+            for line in label_path.read_text().splitlines():
+                parts = line.split()
+                if not parts:  # trailing blank line
+                    continue
+                cid, *coords = parts
+                cx, cy, w, h = (float(v) for v in coords[:4])
+                boxes.append((int(cid), cx, cy, w, h))
+
         records.append(
             {
-                "name": r["name"],
-                "path": images_dir / r["name"],
-                "timeofday": r.get("timeofday"),
+                "name": name,
+                "path": images_dir / name,
+                "timeofday": timeofday[image_rel],
                 "boxes": boxes,
             }
         )
@@ -184,6 +236,10 @@ def _link_or_copy(src, dst):
 
 def build_yolo_dataset(splits, out_dir):
     """Build the images/labels tree + data.yaml that ultralytics expects.
+
+    The source dataset is already in this format, but it is rebuilt anyway:
+    subsample() may have dropped frames, and the source tree also holds the
+    test split, which must never be visible to training.
 
     Args:
         splits (dict[str, list[dict]]): e.g. {"train": [...], "val": [...]},

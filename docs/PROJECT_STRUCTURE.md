@@ -32,8 +32,10 @@ src/configs/                 every tunable value (see "Configs" below)
   writer/comet.yaml            Comet project name + dataset version
   augment/none.yaml            ultralytics augmentation hyperparameters
 
-src/datasets/bdd100k.py      BDD100K JSON -> YOLO dataset; CLASSES; COCO80_TO_OURS
+src/datasets/bdd100k.py      reads the YOLO-format dataset; CLASSES; COCO80_TO_OURS
 src/model/yolo_model.py      build_model (YOLO wrapper) + log_head_info
+src/model/zero_dce_net.py    Zero-DCE curve-estimation network (enhance_net_nopool)
+src/transforms/zero_dce.py   ZeroDCETransform: low-light enhancement of one frame
 src/metrics/detection.py     COCO mAP via torchmetrics, night/day separately
 src/logger/comet_writer.py   Comet: training curves + evaluation runs
 src/logger/logger.py         stdlib logging setup (console + info.log)
@@ -42,8 +44,12 @@ src/utils/init_utils.py      set_random_seed, resolve_device
 src/utils/io_utils.py        ROOT_PATH, read_json/write_json
 src/utils/visualize.py       draw_ground_truth, draw_predictions
 
+weights/                     small pretrained weights kept in git (Zero-DCE)
+dataset/prepare_bdd100k_nvpd.py  standalone: builds the dataset from raw BDD100K
+
 docs/EXPERIMENTS.md          run naming, tags, the metric contract
 docs/PROJECT_STRUCTURE.md    this file
+docs/ZERO_DCE.md             ZeroDCETransform reference
 notebooks/                   thin viewers over src/ - no logic of their own
 ```
 
@@ -106,20 +112,31 @@ at any nesting depth:
 
 ```
 images/{train,val,test}/*.jpg
-train.json   val.json   test.json
+labels/{train,val,test}/*.txt
+data.yaml   timeofday.csv
 ```
 
 `datasets.input_dir` points at a root to search under, not at the dataset
-itself: `find_dataset_root` walks it looking for a folder that has both an
-`images/` subfolder and a `val.json` next to it. That is deliberate — on
-Kaggle the mount path varies between `/kaggle/input/<slug>/` and
-`/kaggle/input/datasets/<owner>/<slug>/`, and a recursive search survives
-both.
+itself: `find_dataset_root` walks it looking for a folder that has an
+`images/` subfolder, a `data.yaml` and a `timeofday.csv` next to each other.
+That is deliberate — on Kaggle the mount path varies between
+`/kaggle/input/<slug>/` and `/kaggle/input/datasets/<owner>/<slug>/`, and a
+recursive search survives both.
 
-`load_records(data_root, split)` reads `<split>.json` and normalizes each
-frame into `{"name", "path", "timeofday", "boxes"}`, where `boxes` is a list
-of `(class_id, cx, cy, w, h)` — coordinates normalized to the frame size,
-which is the format YOLO wants. It also spot-checks the first frame against
+On the way it also calls `_check_class_names`, which compares the dataset's
+`data.yaml` against `CLASSES` and refuses to continue if they disagree. Label
+files store bare integer ids, so a reordered `data.yaml` breaks nothing
+visibly — it just relabels every box and corrupts every metric silently. That
+failure has already happened once in this project, so it is checked rather
+than trusted.
+
+`load_records(data_root, split)` reads `labels/<split>/*.txt` and normalizes
+each frame into `{"name", "path", "timeofday", "boxes"}`, where `boxes` is a
+list of `(class_id, cx, cy, w, h)` — coordinates normalized to the frame
+size, which is the format YOLO wants. The split's contents come from
+`timeofday.csv`, not from a directory listing: a frame with no objects has no
+label file at all, and iterating the labels would quietly drop it. It also
+spot-checks the first frame against
 `IMG_W × IMG_H = 1280 × 720`: predictions are rescaled to each image's real
 size by ultralytics, so a frame-size mismatch would silently corrupt every
 mAP number rather than raise.

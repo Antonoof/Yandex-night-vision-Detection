@@ -1,8 +1,8 @@
 """Zero-DCE image enhancement transform.
 
-The repository root must be importable so that the sibling top-level package
-``zero_dce`` can be resolved. Prefer installing the repository in editable mode
-instead of modifying ``sys.path`` inside this module.
+Run scripts from the repository root, like the rest of the project: the
+network lives in ``src.model.zero_dce_net`` and is imported the same way as
+every other ``src.*`` module.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import torch
 from PIL import Image
 from torch import Tensor
 
-from zero_dce.model import enhance_net_nopool
+from src.model.zero_dce_net import enhance_net_nopool
 
 
 ImageInput: TypeAlias = Image.Image | np.ndarray | Tensor
@@ -196,4 +196,3 @@ class ZeroDCETransform:
             .clamp(0.0, 1.0)
             .cpu()
         )
-

@@ -1,6 +1,7 @@
 # Night Vision Project
 
-Fine-tunes a YOLOv8 detector on [BDD100K](https://www.kaggle.com/datasets/nikitakukuzey/nvpd-bdd100k)
+Fine-tunes a YOLOv8 detector on BDD100K (the `nvpdyf-bdd100k` YOLO-format
+build, see [Data](#data))
 and evaluates it separately on night and day frames, to measure and reduce
 the night-time performance gap. Runs the same way locally, on Kaggle, and on
 a cloud GPU VM — everything is a plain Python script driven by
@@ -56,22 +57,26 @@ auto` in the configs picks up the GPU automatically.
 
 ## Data
 
-Point `datasets.input_dir` (default `data/bdd100k`) at a folder that
+Point `datasets.input_dir` (default `data/nvpdyf-bdd100k`) at a folder that
 contains, somewhere inside it (nesting is fine - the code searches for it):
 
 ```
 images/{train,val,test}/*.jpg
-train.json
-val.json
+labels/{train,val,test}/*.txt
+data.yaml
+timeofday.csv
 ```
 
-Each `<split>.json` holds per-frame annotations with a `timeofday` field and
-`box_yolo` boxes (already normalized `[cx, cy, w, h]`) with `coco_category`
-labels - this is the schema produced by the
-[nvpd-bdd100k](https://www.kaggle.com/datasets/nikitakukuzey/nvpd-bdd100k)
-dataset. `src/datasets/bdd100k.py` converts it into the YOLO-format dataset
-(`images/`, `labels/`, `data.yaml`) that `ultralytics` expects, written to
-`datasets.work_dir` (default `data/bdd_yolo`).
+This is the `nvpdyf-bdd100k` dataset, already in YOLO format, so nothing is
+converted. `data.yaml` fixes the class order, which the label files encode as
+bare integers - `src/datasets/bdd100k.py` refuses to run if it disagrees with
+`CLASSES`. `timeofday.csv` maps `<split>/<file name>` to `daytime`/`night`
+and is what every night-vs-day split in this project is built on; it is a
+separate file because the YOLO format has nowhere to put it.
+
+`build_yolo_dataset` still rewrites the tree into `datasets.work_dir`
+(default `data/bdd_yolo`): `max_train_images` may have dropped frames, and
+the source tree also holds `test/`, which training must never see.
 
 ## How To Use
 

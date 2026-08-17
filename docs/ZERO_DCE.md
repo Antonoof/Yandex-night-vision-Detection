@@ -6,101 +6,85 @@
 
 ```text
 Yandex-night-vision-Detection/
-├── transforms/
-│   ├── __init__.py
-│   ├── zero_dce.py
-│   └── README.md
-├── zero_dce/
-│   ├── __init__.py          # рекомендуется
-│   ├── model.py             # содержит enhance_net_nopool
-│   └── snapshots/
-│       └── Epoch99.pth
+├── src/
+│   ├── transforms/
+│   │   ├── __init__.py
+│   │   └── zero_dce.py      # ZeroDCETransform
+│   └── model/
+│       └── zero_dce_net.py  # содержит enhance_net_nopool
+├── weights/
+│   └── zero_dce_Epoch99.pth
+├── docs/ZERO_DCE.md         # этот файл
 └── ...
 ```
+
+Изначально трансформ жил двумя отдельными пакетами в корне репозитория
+(`transforms/` и `zero_dce/`). Он перенесён в `src/`, чтобы в проекте был
+ровно один способ импорта — тот же `src.*`, которым пользуется весь
+остальной код, — и чтобы не требовался ни `pip install -e .`, ни правка
+`sys.path`.
 
 В `zero_dce.py` используется абсолютный импорт:
 
 ```python
-from zero_dce.model import enhance_net_nopool
+from src.model.zero_dce_net import enhance_net_nopool
 ```
 
-Поэтому корень репозитория должен находиться в Python import path. Не добавляйте изменение `sys.path` внутрь `transforms/zero_dce.py`: модуль должен оставаться независимым от конкретного места клонирования репозитория.
+Поэтому корень репозитория должен находиться в Python import path. Не добавляйте изменение `sys.path` внутрь `src/transforms/zero_dce.py`: модуль должен оставаться независимым от конкретного места клонирования репозитория.
 
 ## Рекомендуемый импорт
 
-Благодаря реэкспорту в `transforms/__init__.py` используйте:
+Благодаря реэкспорту в `src/transforms/__init__.py` используйте:
 
 ```python
-from transforms import ZeroDCETransform
+from src.transforms import ZeroDCETransform
 ```
 
 Это правильнее, чем:
 
 ```python
-import transforms.ZeroDCETransform
+import src.transforms.ZeroDCETransform
 ```
 
-Во втором варианте Python ожидает подмодуль с именем `ZeroDCETransform`, а не класс. В предоставленной структуре модуль называется `transforms.zero_dce`, а класс реэкспортируется на уровень пакета `transforms`.
+Во втором варианте Python ожидает подмодуль с именем `ZeroDCETransform`, а не класс. В предоставленной структуре модуль называется `src.transforms.zero_dce`, а класс реэкспортируется на уровень пакета `src.transforms`.
 
 При необходимости прямой импорт тоже доступен:
 
 ```python
-from transforms.zero_dce import ZeroDCETransform
+from src.transforms.zero_dce import ZeroDCETransform
 ```
 
-## Установка репозитория
+## Запуск
 
-### Вариант 1 — editable install
-
-Это рекомендуемый вариант для разработки. Из корня репозитория выполните:
-
-```bash
-python -m pip install -e .
-```
-
-Для этой команды в репозитории должен существовать корректный `pyproject.toml` или `setup.py`, включающий пакеты `transforms` и `zero_dce`.
-
-После установки класс можно импортировать из любой рабочей директории:
-
-```python
-from transforms import ZeroDCETransform
-```
-
-### Вариант 2 — запуск из корня репозитория
-
-Если репозиторий пока не оформлен как устанавливаемый Python-проект, запускайте код из его корня:
+Специальной установки не требуется. Запускайте из корня репозитория — так же,
+как `train.py` и `inference.py`:
 
 ```bash
 cd Yandex-night-vision-Detection
-python your_script.py
+python3 your_script.py
 ```
 
-Текущая рабочая директория попадёт в Python import path, поэтому будут доступны оба пакета:
+Текущая рабочая директория попадает в Python import path, поэтому доступны
+все модули проекта:
 
 ```python
-from transforms import ZeroDCETransform
-from zero_dce.model import enhance_net_nopool
+from src.transforms import ZeroDCETransform
+from src.model.zero_dce_net import enhance_net_nopool
 ```
 
-### Вариант 3 — Kaggle Notebook без установки
-
-В Notebook допустимо один раз добавить корень репозитория в `sys.path`. Делайте это в точке входа, а не внутри transform:
+В Kaggle Notebook, если рабочая директория не корень репозитория, добавьте
+его в `sys.path` **в точке входа** (не внутри самого трансформа):
 
 ```python
 import sys
 from pathlib import Path
 
-REPO_DIR = Path(
-    "/kaggle/working/Yandex-night-vision-Detection"
-).resolve()
-
+REPO_DIR = Path("/kaggle/working/Yandex-night-vision-Detection").resolve()
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from transforms import ZeroDCETransform
+from src.transforms import ZeroDCETransform
 ```
-
-После добавления `REPO_DIR` импорт из `zero_dce.model` внутри transform разрешится автоматически.
 
 ## Зависимости
 
@@ -110,8 +94,8 @@ python -m pip install numpy Pillow torch
 
 Также в репозитории должны присутствовать:
 
-- `zero_dce/model.py` с функцией `enhance_net_nopool`;
-- файл весов Zero-DCE, например `zero_dce/snapshots/Epoch99.pth`.
+- `src/model/zero_dce_net.py` с функцией `enhance_net_nopool`;
+- файл весов Zero-DCE, например `weights/zero_dce_Epoch99.pth`.
 
 ## Базовое использование
 
@@ -121,13 +105,13 @@ from pathlib import Path
 import torch
 from PIL import Image
 
-from transforms import ZeroDCETransform
+from src.transforms import ZeroDCETransform
 
 
 REPO_DIR = Path("/kaggle/working/Yandex-night-vision-Detection")
 
 transform = ZeroDCETransform(
-    weights_path=REPO_DIR / "zero_dce/snapshots/Epoch99.pth",
+    weights_path=REPO_DIR / "weights/zero_dce_Epoch99.pth",
     device="cuda" if torch.cuda.is_available() else "cpu",
     probability=1.0,
     use_amp=True,
@@ -149,7 +133,7 @@ print(enhanced.min().item(), enhanced.max().item())
 
 ```python
 transform = ZeroDCETransform(
-    weights_path="zero_dce/snapshots/Epoch99.pth",
+    weights_path="weights/zero_dce_Epoch99.pth",
     device="cuda",
     probability=0.5,
 )
@@ -265,8 +249,7 @@ torch.save(
 Из корня репозитория:
 
 ```bash
-python -c "from transforms import ZeroDCETransform; print(ZeroDCETransform)"
+python -c "from src.transforms import ZeroDCETransform; print(ZeroDCETransform)"
 ```
 
-Если возникает `ModuleNotFoundError: No module named 'zero_dce'`, значит корень репозитория не находится в Python import path. Используйте editable install, запускайте код из корня репозитория или добавьте корень в `sys.path` в точке входа.
-
+Если возникает `ModuleNotFoundError: No module named 'src'`, значит корень репозитория не находится в Python import path: запускайте код из корня репозитория или добавьте корень в `sys.path` в точке входа.

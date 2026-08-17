@@ -53,17 +53,19 @@ order.
 
 | # | File | Lines | What to look for |
 |---|---|---|---|
-| 5 | `src/datasets/bdd100k.py` — **the rest** | 229 | see below |
+| 5 | `src/datasets/bdd100k.py` — **the rest** | 284 | see below |
 
 | Function | Line | Responsibility |
 |---|---|---|
-| `find_dataset_root` | 36 | Recursively finds the folder with `images/` + `val.json`. Recursive on purpose: Kaggle's mount path is not stable |
-| `load_records` | 55 | `<split>.json` → `{name, path, timeofday, boxes}`. `boxes` are `(class_id, cx, cy, w, h)`, normalized |
-| `_check_frame_size` | 93 | Spot-checks the first frame against 1280×720. Without it a different-sized dataset would silently corrupt every mAP number instead of raising |
-| `describe_split_balance` | 107 | Logs the class/night/day balance **and returns it**, so notebooks can plot it |
-| `subsample` | 153 | Shrinks the train set keeping the night/day ratio — for quick runs |
-| `_link_or_copy` | 177 | Symlink, falling back to copy where symlinks are unavailable |
-| `build_yolo_dataset` | 186 | Writes `images/`, `labels/*.txt`, `data.yaml`. **Line 223 writes `names:` from `CLASSES` — remember this line, it is where the head replacement begins** |
+| `find_dataset_root` | 47 | Recursively finds the folder with `images/` + `data.yaml` + `timeofday.csv`. Recursive on purpose: Kaggle's mount path is not stable |
+| `_check_class_names` | 68 | Refuses to run if the dataset's `data.yaml` orders classes differently from `CLASSES`. Labels are bare integers, so a mismatch relabels every box **silently** — this is the project's one known silent-corruption path |
+| `_load_timeofday` | 89 | `timeofday.csv` → `{"<split>/<name>": "night" \| "daytime"}`. The YOLO format has nowhere to store this, hence a side file |
+| `load_records` | 95 | `labels/<split>/*.txt` → `{name, path, timeofday, boxes}`. `boxes` are `(class_id, cx, cy, w, h)`, normalized. Iterates the **CSV**, not the label dir: an object-free frame has no label file and would be dropped |
+| `_check_frame_size` | 144 | Spot-checks the first frame against 1280×720. Without it a different-sized dataset would silently corrupt every mAP number instead of raising |
+| `describe_split_balance` | 158 | Logs the class/night/day balance **and returns it**, so notebooks can plot it |
+| `subsample` | 204 | Shrinks the train set keeping the night/day ratio — for quick runs |
+| `_link_or_copy` | 228 | Symlink, falling back to copy where symlinks are unavailable |
+| `build_yolo_dataset` | 237 | Rewrites `images/`, `labels/*.txt`, `data.yaml` for training. The source is already YOLO-format, but `subsample` may have dropped frames and the source also holds `test/`, which training must never see. **Line 278 writes `names:` from `CLASSES` — remember this line, it is where the head replacement begins** |
 
 **The one idea to take away:** everything downstream — metrics,
 visualization, training — consumes the record dict from `load_records`. It
