@@ -166,8 +166,8 @@ Three places in the log prove it happened:
 | Evidence | Where |
 | --- | --- |
 | `nc (classes): 80`, `cv3 ... out_channels=80` | `log_head_info` on the pretrained model, before training |
-| `Transferred 322/355 items from pretrained weights` | ultralytics, at the start of training — the 33 missing tensors are `cv3` |
-| `nc (classes): 8`, `cv3 ... out_channels=8` | `log_head_info` on `best.pt`, after training |
+| `Transferred .../... items from pretrained weights` | ultralytics, at the start of training — the 33 missing tensors are `cv3` |
+| `nc (classes): 7`, `cv3 ... out_channels=7` | `log_head_info` on `best.pt`, after training |
 
 The parameter count drops with it: 3,157,200 for the 80-class model versus
 3,012,408 for ours.

@@ -102,6 +102,18 @@ Logged once per epoch, from ultralytics' own trainer.
 | `val/AP50-95_<class>`, `val/AP50_<class>` | per-class AP |
 | `val/P_<class>`, `val/R_<class>` | per-class precision/recall |
 
+### Error analysis — logged with every fine-tuning run
+
+* `predictions_night`, `predictions_day` — ground truth beside predictions on
+  a **fixed** set of frames (first N by name, `trainer.num_visualization_samples`).
+  Fixed on purpose: a random sample cannot be compared between runs.
+* the confusion matrix of the final `best.pt` validation pass.
+
+The night/day and size-split metrics are **single points, not curves**: each
+needs a full extra inference pass over the split (~12 min for this dataset),
+which is not worth repeating every epoch. They are stamped with the last
+training step so they sit at the end of the shared x-axis.
+
 > `val/mAP50-95` (ultralytics) and `night/map` + `day/map` (torchmetrics) are
 > **different implementations** — different PR-curve interpolation, different
 > NMS settings, different averaging. Compare within one implementation, never

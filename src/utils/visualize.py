@@ -62,6 +62,92 @@ def draw_ground_truth(records, out_path=None, box_color="lime"):
     return fig
 
 
+def draw_comparison(model, records, out_path, imgsz, conf, device, title=""):
+    """Ground truth next to the model's predictions, one row per frame.
+
+    The ground-truth panel is what makes this useful: a missed object is
+    invisible in a predictions-only figure — an empty frame looks the same
+    whether the model failed or there was nothing to find.
+
+    Args:
+        model (ultralytics.YOLO): model to run predictions with.
+        records (list[dict]): records from src.datasets.bdd100k.load_records.
+            Use a *fixed* set (e.g. sorted by name) so figures stay
+            comparable between runs.
+        out_path (str | Path): where to save the figure.
+        imgsz (int): inference image size.
+        conf (float): confidence threshold — a human-facing value (e.g.
+            0.25), unlike the low threshold used for mAP evaluation.
+        device (int | str): device to run inference on.
+        title (str): prefix for each row's titles, e.g. "night".
+    Returns:
+        out_path (Path): where the figure was saved.
+    """
+    if not records:
+        raise ValueError("nothing to draw: 'records' is empty")
+
+    fig, axes = plt.subplots(
+        len(records), 2, figsize=(18, 5.2 * len(records)), squeeze=False
+    )
+
+    for row, r in enumerate(records):
+        image = Image.open(r["path"])
+
+        ax = axes[row][0]
+        ax.imshow(image)
+        for c, cx, cy, w, h in r["boxes"]:
+            x, y = (cx - w / 2) * IMG_W, (cy - h / 2) * IMG_H
+            ax.add_patch(
+                plt.Rectangle(
+                    (x, y),
+                    w * IMG_W,
+                    h * IMG_H,
+                    fill=False,
+                    color="lime",
+                    linewidth=1.5,
+                )
+            )
+            ax.text(x, y - 4, CLASSES[c], color="lime", fontsize=7)
+        ax.set_title(f"{title} {r['name']} — разметка: {len(r['boxes'])}", fontsize=10)
+        ax.axis("off")
+
+        res = model.predict(
+            str(r["path"]), imgsz=imgsz, conf=conf, device=device, verbose=False
+        )[0]
+        ax = axes[row][1]
+        ax.imshow(image)
+        kept = 0
+        for box, cls, score in zip(
+            res.boxes.xyxy.cpu(), res.boxes.cls.cpu().long(), res.boxes.conf.cpu()
+        ):
+            cid = int(cls)
+            if cid >= len(CLASSES):  # model trained on a different class set
+                continue
+            x1, y1, x2, y2 = box.tolist()
+            ax.add_patch(
+                plt.Rectangle(
+                    (x1, y1), x2 - x1, y2 - y1, fill=False, color="red", linewidth=1.5
+                )
+            )
+            ax.text(
+                x1,
+                y1 - 4,
+                f"{CLASSES[cid]} {float(score):.2f}",
+                color="red",
+                fontsize=7,
+            )
+            kept += 1
+        ax.set_title(f"предсказание (conf ≥ {conf}) — найдено: {kept}", fontsize=10)
+        ax.axis("off")
+
+    plt.tight_layout()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, bbox_inches="tight", dpi=90)
+    plt.close(fig)
+    return out_path
+
+
 def draw_predictions(model, records, out_path, imgsz, conf, device):
     """Save a stacked figure: one row per record, predictions drawn in red.
 

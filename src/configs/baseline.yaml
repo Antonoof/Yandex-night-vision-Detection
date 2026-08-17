@@ -19,3 +19,7 @@ trainer:
   run_name: 01_finetune_yolov8n_head
   override: false # set true to overwrite an existing run_name's outputs
   eval_zero_shot: true # also measure the un-finetuned COCO baseline before training
+  # error analysis: ground truth vs. predictions on fixed night/day frames,
+  # saved next to the weights and sent to Comet
+  num_visualization_samples: 6
+  visualization_conf: 0.25 # human-facing threshold, unlike metrics.conf

@@ -158,6 +158,7 @@ class CometRunLogger:
         self.grad_norm_every = grad_norm_every
         self.exp = None
         self._grad = {"sum": 0.0, "n": 0, "step": 0}
+        self._last_epoch = 0  # so final metrics land at the end of the x-axis
 
         if not enabled:
             logger.info("[Comet disabled] not logging %s", run_name)
@@ -198,6 +199,7 @@ class CometRunLogger:
             return
         model.add_callback("on_train_start", self._on_train_start)
         model.add_callback("on_fit_epoch_end", self._on_fit_epoch_end)
+        model.add_callback("on_train_end", self._on_train_end)
 
     def _on_train_start(self, trainer):
         """Wrap ``optimizer_step`` so gradients can be measured before they
@@ -238,9 +240,33 @@ class CometRunLogger:
             payload.update(self._per_class_metrics(trainer))
 
             epoch = int(getattr(trainer, "epoch", 0)) + 1
+            self._last_epoch = epoch
             self.exp.log_metrics(_clean(payload), step=epoch, epoch=epoch)
         except Exception as e:
             logger.warning("comet epoch logging failed: %s", e)
+
+    def _on_train_end(self, trainer):
+        """Log the confusion matrix of the final validation pass.
+
+        ultralytics re-validates with best.pt right before this callback, so
+        the matrix belongs to the checkpoint we actually keep. It answers in
+        one glance the question the scalar metrics cannot: are classes being
+        confused with each other, or with the background?
+        """
+        if self.exp is None:
+            return
+        try:
+            cm = trainer.validator.confusion_matrix.matrix
+            names = getattr(trainer.validator, "names", None) or trainer.data["names"]
+            labels = [str(names[i]) for i in sorted(names)] + ["background"]
+            self.exp.log_confusion_matrix(
+                matrix=[[int(v) for v in row] for row in cm],
+                labels=labels,
+                title="confusion matrix (best.pt, весь val)",
+                file_name="confusion-matrix.json",
+            )
+        except Exception as e:
+            logger.warning("could not log the confusion matrix: %s", e)
 
     @staticmethod
     def _per_class_metrics(trainer):
@@ -273,6 +299,12 @@ class CometRunLogger:
     def log_eval(self, split, metrics):
         """Log the final night/day evaluation into this same experiment.
 
+        These are single points, not curves: they come from a full extra
+        inference pass over the split, which is far too slow to repeat every
+        epoch. They are stamped with the last training step so they line up
+        with the end of the training curves on a shared x-axis instead of
+        landing at step 0.
+
         Args:
             split (str): "night" or "day".
             metrics (dict): output of ``evaluate_detector``.
@@ -280,9 +312,28 @@ class CometRunLogger:
         if self.exp is None:
             return
         try:
-            self.exp.log_metrics({f"{split}/{k}": v for k, v in metrics.items()})
+            self.exp.log_metrics(
+                {f"{split}/{k}": v for k, v in metrics.items()},
+                step=self._last_epoch or None,
+                epoch=self._last_epoch or None,
+            )
         except Exception as e:
             logger.warning("comet eval logging failed: %s", e)
+
+    def log_image(self, path, name):
+        """Attach a figure to the experiment.
+
+        Args:
+            path (str | Path): image file to upload.
+            name (str): name shown in the Comet UI's Graphics tab.
+        """
+        if self.exp is None:
+            return
+        try:
+            self.exp.log_image(str(path), name=name, step=self._last_epoch or None)
+            logger.info("comet: изображение '%s' отправлено", name)
+        except Exception as e:
+            logger.warning("could not log image '%s': %s", name, e)
 
     def end(self):
         """Close the experiment."""

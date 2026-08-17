@@ -20,6 +20,7 @@ from src.metrics import evaluate_detector, print_results
 from src.model import log_head_info
 from src.utils.init_utils import resolve_device, set_random_seed
 from src.utils.io_utils import ROOT_PATH
+from src.utils.visualize import draw_comparison
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -191,6 +192,29 @@ def main(config):
 
         comet_run.log_eval("night", ft_night)
         comet_run.log_eval("day", ft_day)
+
+        # Разбор ошибок глазами: метрики говорят, ЧТО просело, а картинки —
+        # почему именно (пропуск / рамка мимо / ложное срабатывание на блике).
+        # Кадры фиксированные (первые по имени), поэтому их можно сравнивать
+        # между запусками; случайная выборка такого не позволяет.
+        n_samples = config.trainer.num_visualization_samples
+        for split, split_records in (("night", night_records), ("day", day_records)):
+            samples = sorted(split_records, key=lambda r: r["name"])[:n_samples]
+            if not samples:
+                logger.info("нет кадров '%s' для отрисовки, пропускаю", split)
+                continue
+            figure = Path(weights_save_dir) / f"predictions_{split}.png"
+            draw_comparison(
+                best,
+                samples,
+                figure,
+                imgsz=config.trainer.imgsz,
+                conf=config.trainer.visualization_conf,
+                device=device,
+                title=split,
+            )
+            comet_run.log_image(figure, f"predictions_{split}")
+            logger.info("сохранено: %s", figure)
 
     metrics = {"fine-tuned/night": ft_night, "fine-tuned/day": ft_day}
     if config.trainer.eval_zero_shot:
