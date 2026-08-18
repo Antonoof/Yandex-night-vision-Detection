@@ -25,6 +25,28 @@ repos:
         description: >
           This repo is English-only - docs, comments and log messages must
           not contain Cyrillic. See README.md.
-        entry: python3 scripts/check_english_only.py
+        # chr(0x0400)/chr(0x04FF) build the Cyrillic-block boundaries at
+        # runtime rather than as \u-escapes or literal characters, so this
+        # entry does not trip its own check and isn't at the mercy of
+        # editors/YAML parsers normalizing escapes.
+        entry: |
+          python3 -c "
+          import re, sys
+          lo, hi = chr(0x0400), chr(0x04FF)
+          pat = re.compile('[' + lo + '-' + hi + ']')
+          bad = False
+          for path in sys.argv[1:]:
+              try:
+                  text = open(path, encoding='utf-8').read()
+              except (UnicodeDecodeError, OSError):
+                  continue
+              for i, line in enumerate(text.splitlines(), 1):
+                  if pat.search(line):
+                      print(f'{path}:{i}: {line}')
+                      bad = True
+          if bad:
+              print('Cyrillic text found above - this repo is English-only, see README.md.')
+          sys.exit(1 if bad else 0)
+          "
         language: system
         types: [text]
