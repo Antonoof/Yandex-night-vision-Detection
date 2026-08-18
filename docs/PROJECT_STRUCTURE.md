@@ -94,6 +94,7 @@ python3 train.py augment=none augment.fliplr=0.5     # swap a group, then a key
 | `eval_every_k_epochs` (night/day mAP + figures during training) | `baseline.yaml` → `trainer:` |
 | starting weights (`yolov8n.pt`) | `model/baseline.yaml` |
 | dataset location, build location, `max_train_images` | `datasets/bdd100k.yaml` |
+| `night_oversample` (repeat night train frames Nx - no ultralytics loss-weighting knob exists) | `datasets/bdd100k.yaml` |
 | evaluation `conf` / `iou` / `max_det` | `metrics/detection.yaml` |
 | Comet project name, `dataset_version` | `writer/comet.yaml` |
 | augmentation hyperparameters | `augment/` group: `none.yaml` or `default.yaml` |
@@ -208,7 +209,9 @@ freezes the first 10 modules (the backbone) so only the neck and head move.
 4. `resolve_device` — `"auto"` becomes GPU `0` if CUDA is available, else
    `"cpu"`; anything else passes through (e.g. `"mps"`).
 5. Finds the dataset, loads `train`/`val` records, logs the class balance,
-   optionally subsamples, and asserts that no frame is in both splits.
+   optionally subsamples, and asserts that no frame is in both splits. If
+   `night_oversample > 1`, repeats night train frames under distinct names
+   (`oversample_night`) so ultralytics' own dataloader sees them more often.
 6. Builds the YOLO dataset tree and `data.yaml`.
 7. If `trainer.eval_zero_shot` (default true): loads the COCO-pretrained
    model, dumps the head layout, and evaluates it on the night and day

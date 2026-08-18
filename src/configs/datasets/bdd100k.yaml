@@ -6,3 +6,7 @@ input_dir: data/nvpdyf-bdd100k
 work_dir: data/bdd_yolo
 # null = train on everything; set an int for a quick subsample
 max_train_images: null
+# repeat each night training frame this many times (day is left alone), so
+# night gets proportionally more gradient updates per epoch without touching
+# ultralytics' loss. 1 = off (default). See oversample_night in bdd100k.py.
+night_oversample: 1

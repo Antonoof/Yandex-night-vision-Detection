@@ -225,6 +225,36 @@ def subsample(records, limit, seed):
     return out
 
 
+def oversample_night(records, factor):
+    """Repeat each night record so it gets more gradient updates per epoch.
+
+    ultralytics does not expose a per-sample loss weight, so this is the
+    lever available without forking its trainer/loss: night frames are
+    included multiple times under distinct output names, so they land in
+    the built dataset as separate files and ultralytics' own dataloader (no
+    code of ours) is what actually oversamples them each epoch. Day frames
+    are left untouched.
+
+    Args:
+        records (list[dict]): records from load_records/subsample.
+        factor (int): 1 leaves records unchanged; N repeats each night
+            record N times, under names like "<stem>__night0<suffix>".
+    Returns:
+        records (list[dict]): day records once, night records `factor` times.
+    """
+    if factor <= 1:
+        return records
+    out = []
+    for r in records:
+        if r["timeofday"] != "night":
+            out.append(r)
+            continue
+        stem, suffix = Path(r["name"]).stem, Path(r["name"]).suffix
+        for i in range(factor):
+            out.append({**r, "name": f"{stem}__night{i}{suffix}"})
+    return out
+
+
 def _link_or_copy(src, dst):
     """Symlink src at dst; fall back to copying where symlinks aren't
     available (e.g. Windows without developer mode, some network mounts)."""

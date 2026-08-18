@@ -69,6 +69,18 @@ def main(config):
         {r["name"] for r in train_used} & {r["name"] for r in val_records}
     ), "the same frame is present in both train and val!"
 
+    if config.datasets.night_oversample > 1:
+        before = len(train_used)
+        train_used = bdd100k.oversample_night(
+            train_used, config.datasets.night_oversample
+        )
+        logger.info(
+            "night_oversample=%d: train %d -> %d frames",
+            config.datasets.night_oversample,
+            before,
+            len(train_used),
+        )
+
     data_yaml = bdd100k.build_yolo_dataset(
         {"train": train_used, "val": val_records}, ROOT_PATH / config.datasets.work_dir
     )
@@ -137,6 +149,7 @@ def main(config):
             "imgsz": config.trainer.imgsz,
             "freeze": config.trainer.freeze,
             "seed": config.trainer.seed,
+            "night_oversample": config.datasets.night_oversample,
             "n_train": len(train_used),
             "n_val_night": len(night_records),
             "n_val_day": len(day_records),
