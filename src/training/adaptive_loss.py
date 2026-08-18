@@ -193,8 +193,10 @@ class AdaptiveLossController:
             return
 
         def install(trainer: Any) -> None:
-            from ultralytics.utils.torch_utils import de_parallel
-
+            try:
+                from ultralytics.utils.torch_utils import unwrap_model
+            except ImportError:
+                from ultralytics.utils.torch_utils import de_parallel as unwrap_model
             model = de_parallel(trainer.model)
             model.criterion = AdaptiveDetectionLoss(
                 model,
