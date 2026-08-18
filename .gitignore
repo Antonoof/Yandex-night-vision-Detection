@@ -1,17 +1,21 @@
-.venv
-project_env/
+# Operating system
+.DS_Store
 
+# Virtual environment
+.venv
+
+# Python cache
 __pycache__/
 *.pyc
 
 # dataset (downloaded separately, see README) and generated YOLO-format tree
 data/
+
 # training/eval outputs (checkpoints, logs, results.json, visualizations)
 saved/
+
 # Hydra's own per-run log dir
 outputs/
+
 # COCO-pretrained weights ultralytics downloads on first run
 *.pt
-
-# os
-.DS_Store

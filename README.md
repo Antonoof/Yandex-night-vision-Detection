@@ -19,9 +19,10 @@ a cloud GPU VM — everything is a plain Python script driven by
 ### Local machine
 
 ```bash
-# create + activate an env (conda or venv+pyenv both work)
-conda create -n project_env python=3.11 && conda activate project_env
-# or: ~/.pyenv/versions/3.11/bin/python3 -m venv project_env && source project_env/bin/activate
+# create + activate an env in .venv (conda or plain venv both work)
+conda create -p ./.venv python=3.11 && conda activate ./.venv
+# or, with a python3.11 already on PATH (e.g. via pyenv):
+# python3.11 -m venv .venv && source .venv/bin/activate
 
 # install torch matching your platform/CUDA version first, see
 # https://pytorch.org/get-started/locally/ - e.g. for CPU-only:

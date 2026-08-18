@@ -9,7 +9,9 @@ pattern that works for one contributor silently no-ops for another.
 import re
 import sys
 
-CYRILLIC = re.compile("[Ѐ-ӿ]")
+# U+0400-U+04FF is the Cyrillic block, spelled as escapes rather than
+# literal characters so this file does not trip its own check.
+CYRILLIC = re.compile("[\u0400-\u04FF]")
 
 
 def main(paths):
