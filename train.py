@@ -4,8 +4,6 @@ import os
 # autologging does not get patched in - this is a requirement of the library.
 USE_COMET = bool(os.environ.get("COMET_API_KEY"))
 if USE_COMET:
-    os.environ["COMET_WORKSPACE"] = str(config.writer.workspace)
-    os.environ["COMET_PROJECT_NAME"] = str(config.writer.project_name)
     import comet_ml  # noqa: F401
 
 import json
@@ -56,7 +54,8 @@ def main(config):
     set_random_seed(config.trainer.seed)
 
     if USE_COMET:
-        os.environ["COMET_PROJECT_NAME"] = config.writer.project_name
+        os.environ["COMET_WORKSPACE"] = str(config.writer.workspace)
+        os.environ["COMET_PROJECT_NAME"] = str(config.writer.project_name)
 
     save_dir = ROOT_PATH / config.trainer.save_dir / config.trainer.run_name
     if (save_dir / "weights").exists() and not config.trainer.override:
