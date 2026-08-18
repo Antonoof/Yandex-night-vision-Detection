@@ -262,7 +262,7 @@ class CometRunLogger:
             self.exp.log_confusion_matrix(
                 matrix=[[int(v) for v in row] for row in cm],
                 labels=labels,
-                title="confusion matrix (best.pt, весь val)",
+                title="confusion matrix (best.pt, full val)",
                 file_name="confusion-matrix.json",
             )
         except Exception as e:
@@ -342,7 +342,7 @@ class CometRunLogger:
         step = epoch if epoch is not None else self._last_epoch
         try:
             self.exp.log_image(str(path), name=name, step=step or None)
-            logger.info("comet: изображение '%s' отправлено", name)
+            logger.info("comet: image '%s' uploaded", name)
         except Exception as e:
             logger.warning("could not log image '%s': %s", name, e)
 

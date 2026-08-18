@@ -1,7 +1,7 @@
 # ultralytics augmentation hyperparameters, all disabled - a clean baseline
 # to measure against, not a training recipe. Turning these off measurably
 # hurt: night mAP 0.2516 -> 0.2153 and the night/day gap 7.71% -> 11.04%
-# (журнал, строки №2 и №8). Use `augment=default` for the notebook's
+# (log lines #2 and #8). Use `augment=default` for the notebook's
 # recipe, or override single keys: `python3 train.py augment.hsv_v=0.4`.
 hsv_h: 0.0
 hsv_s: 0.0

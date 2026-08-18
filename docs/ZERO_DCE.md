@@ -1,8 +1,9 @@
 # `ZeroDCETransform`
 
-`ZeroDCETransform` — вызываемая transform для осветления RGB-изображений с помощью предобученной модели Zero-DCE.
+`ZeroDCETransform` — a callable transform that brightens RGB images using a
+pretrained Zero-DCE model.
 
-## Структура репозитория
+## Repository layout
 
 ```text
 Yandex-night-vision-Detection/
@@ -11,69 +12,74 @@ Yandex-night-vision-Detection/
 │   │   ├── __init__.py
 │   │   └── zero_dce.py      # ZeroDCETransform
 │   └── model/
-│       └── zero_dce_net.py  # содержит enhance_net_nopool
+│       └── zero_dce_net.py  # contains enhance_net_nopool
 ├── weights/
 │   └── zero_dce_Epoch99.pth
-├── docs/ZERO_DCE.md         # этот файл
+├── docs/ZERO_DCE.md         # this file
 └── ...
 ```
 
-Изначально трансформ жил двумя отдельными пакетами в корне репозитория
-(`transforms/` и `zero_dce/`). Он перенесён в `src/`, чтобы в проекте был
-ровно один способ импорта — тот же `src.*`, которым пользуется весь
-остальной код, — и чтобы не требовался ни `pip install -e .`, ни правка
-`sys.path`.
+The transform originally lived as two separate top-level packages
+(`transforms/` and `zero_dce/`). It was moved into `src/` so the project has
+exactly one way to import things — the same `src.*` the rest of the code
+uses — and so it needs neither `pip install -e .` nor a `sys.path` edit.
 
-В `zero_dce.py` используется абсолютный импорт:
+`zero_dce.py` uses an absolute import:
 
 ```python
 from src.model.zero_dce_net import enhance_net_nopool
 ```
 
-Поэтому корень репозитория должен находиться в Python import path. Не добавляйте изменение `sys.path` внутрь `src/transforms/zero_dce.py`: модуль должен оставаться независимым от конкретного места клонирования репозитория.
+So the repository root must be on the Python import path. Do not add a
+`sys.path` change inside `src/transforms/zero_dce.py`: the module must stay
+independent of where the repository happens to be cloned.
 
-## Рекомендуемый импорт
+## Recommended import
 
-Благодаря реэкспорту в `src/transforms/__init__.py` используйте:
+Thanks to the re-export in `src/transforms/__init__.py`, use:
 
 ```python
 from src.transforms import ZeroDCETransform
 ```
 
-Это правильнее, чем:
+This is more correct than:
 
 ```python
 import src.transforms.ZeroDCETransform
 ```
 
-Во втором варианте Python ожидает подмодуль с именем `ZeroDCETransform`, а не класс. В предоставленной структуре модуль называется `src.transforms.zero_dce`, а класс реэкспортируется на уровень пакета `src.transforms`.
+In the second form Python expects a submodule named `ZeroDCETransform`, not
+a class. In the actual layout the module is called
+`src.transforms.zero_dce`, and the class is re-exported at the
+`src.transforms` package level.
 
-При необходимости прямой импорт тоже доступен:
+A direct import also works if you need it:
 
 ```python
 from src.transforms.zero_dce import ZeroDCETransform
 ```
 
-## Запуск
+## Running it
 
-Специальной установки не требуется. Запускайте из корня репозитория — так же,
-как `train.py` и `inference.py`:
+No special install is required. Run it from the repository root, the same
+way as `train.py` and `inference.py`:
 
 ```bash
 cd Yandex-night-vision-Detection
 python3 your_script.py
 ```
 
-Текущая рабочая директория попадает в Python import path, поэтому доступны
-все модули проекта:
+The current working directory ends up on the Python import path, so every
+project module is available:
 
 ```python
 from src.transforms import ZeroDCETransform
 from src.model.zero_dce_net import enhance_net_nopool
 ```
 
-В Kaggle Notebook, если рабочая директория не корень репозитория, добавьте
-его в `sys.path` **в точке входа** (не внутри самого трансформа):
+In a Kaggle Notebook, if the working directory is not the repository root,
+add it to `sys.path` **at the entry point** (not inside the transform
+itself):
 
 ```python
 import sys
@@ -86,18 +92,18 @@ if str(REPO_DIR) not in sys.path:
 from src.transforms import ZeroDCETransform
 ```
 
-## Зависимости
+## Dependencies
 
 ```bash
 python -m pip install numpy Pillow torch
 ```
 
-Также в репозитории должны присутствовать:
+The repository must also contain:
 
-- `src/model/zero_dce_net.py` с функцией `enhance_net_nopool`;
-- файл весов Zero-DCE, например `weights/zero_dce_Epoch99.pth`.
+- `src/model/zero_dce_net.py` with the `enhance_net_nopool` function;
+- a Zero-DCE weights file, e.g. `weights/zero_dce_Epoch99.pth`.
 
-## Базовое использование
+## Basic usage
 
 ```python
 from pathlib import Path
@@ -125,11 +131,13 @@ print(enhanced.dtype)  # torch.float32
 print(enhanced.min().item(), enhanced.max().item())
 ```
 
-Результат всегда возвращается на CPU в формате RGB-тензора `[3, H, W]`, `float32`, диапазон `[0, 1]`.
+The result is always returned on the CPU as an RGB tensor `[3, H, W]`,
+`float32`, range `[0, 1]`.
 
-## Вероятностное применение
+## Probabilistic application
 
-Параметр `probability` позволяет использовать осветление как вероятностную аугментацию:
+The `probability` parameter lets you use the brightening as a probabilistic
+augmentation:
 
 ```python
 transform = ZeroDCETransform(
@@ -139,11 +147,12 @@ transform = ZeroDCETransform(
 )
 ```
 
-При пропуске Zero-DCE transform всё равно нормализует вход и возвращает RGB-тензор `[3, H, W]` в диапазоне `[0, 1]`.
+When Zero-DCE is skipped, the transform still normalizes the input and
+returns an RGB tensor `[3, H, W]` in range `[0, 1]`.
 
-Допустимый диапазон `probability` — от `0.0` до `1.0`.
+The valid range for `probability` is `0.0` to `1.0`.
 
-## Поддерживаемые входы
+## Supported inputs
 
 ### PIL
 
@@ -154,7 +163,7 @@ image = Image.open("example.jpg")
 enhanced = transform(image)
 ```
 
-Изображение автоматически преобразуется в RGB.
+The image is automatically converted to RGB.
 
 ### NumPy
 
@@ -165,7 +174,8 @@ image = np.zeros((720, 1280, 3), dtype=np.uint8)
 enhanced = transform(image)
 ```
 
-Поддерживаются массивы `[H, W, 3]` и `[H, W, 4]`. Alpha-канал отбрасывается.
+Arrays of shape `[H, W, 3]` and `[H, W, 4]` are supported. The alpha channel
+is dropped.
 
 ### PyTorch
 
@@ -176,9 +186,9 @@ image = torch.rand(3, 720, 1280)
 enhanced = transform(image)
 ```
 
-Tensor должен иметь формат `[3, H, W]` и порядок каналов RGB.
+The tensor must be in `[3, H, W]` format with RGB channel order.
 
-## Использование в Dataset
+## Usage inside a Dataset
 
 ```python
 from pathlib import Path
@@ -211,26 +221,27 @@ dataset = NightImageDataset(
 )
 ```
 
-## AMP и устройство
+## AMP and device
 
-- `use_amp=True` включает `float16` autocast только при `device="cuda"`;
-- на CPU AMP автоматически отключается;
-- если запрошен CUDA device, но CUDA недоступна, конструктор сразу поднимет понятную ошибку;
-- модель переводится в `eval()`;
-- градиенты параметров модели отключаются;
-- вызов выполняется под `torch.inference_mode()`.
+- `use_amp=True` enables `float16` autocast only when `device="cuda"`;
+- AMP is automatically disabled on CPU;
+- if a CUDA device is requested but CUDA is unavailable, the constructor
+  raises a clear error immediately;
+- the model is switched to `eval()`;
+- gradients are disabled on the model's parameters;
+- the call runs under `torch.inference_mode()`.
 
-## Формат checkpoint
+## Checkpoint format
 
-Поддерживаются два распространённых варианта:
+Two common variants are supported:
 
-1. обычный state dict:
+1. a plain state dict:
 
 ```python
 torch.save(model.state_dict(), "Epoch99.pth")
 ```
 
-2. checkpoint со вложенным `state_dict`:
+2. a checkpoint with a nested `state_dict`:
 
 ```python
 torch.save(
@@ -242,14 +253,17 @@ torch.save(
 )
 ```
 
-Префикс `module.`, добавленный `torch.nn.DataParallel`, удаляется автоматически.
+The `module.` prefix added by `torch.nn.DataParallel` is stripped
+automatically.
 
-## Быстрая проверка импорта
+## Quick import check
 
-Из корня репозитория:
+From the repository root:
 
 ```bash
 python -c "from src.transforms import ZeroDCETransform; print(ZeroDCETransform)"
 ```
 
-Если возникает `ModuleNotFoundError: No module named 'src'`, значит корень репозитория не находится в Python import path: запускайте код из корня репозитория или добавьте корень в `sys.path` в точке входа.
+If you get `ModuleNotFoundError: No module named 'src'`, the repository
+root is not on the Python import path: run the code from the repository
+root, or add the root to `sys.path` at the entry point.

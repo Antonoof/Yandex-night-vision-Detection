@@ -1,20 +1,24 @@
-# Сборка NVPDYF BDD100K в формате Ultralytics YOLO
+# Building NVPDYF BDD100K in Ultralytics YOLO format
 
-Инструкция описывает запуск `prepare_bdd100k_nvpd.py` в Kaggle Notebook. Скрипт:
+This guide covers running `prepare_bdd100k_nvpd.py` in a Kaggle Notebook.
+The script:
 
-- скачивает или использует уже скачанный BDD100K;
-- формирует сбалансированные `train` и `val` из исходной BDD100K `train`;
-- переносит в `test` **все** изображения исходной BDD100K `val`, у которых `timeofday` равен `daytime` или `night`;
-- создаёт разметку непосредственно в формате Ultralytics YOLO;
-- при необходимости создаёт новый Kaggle Dataset или публикует новую версию существующего.
+- downloads BDD100K, or uses an already-downloaded copy;
+- builds balanced `train` and `val` splits out of the source BDD100K `train`;
+- moves **all** images from the source BDD100K `val` whose `timeofday` is
+  `daytime` or `night` into `test`;
+- writes labels directly in Ultralytics YOLO format;
+- optionally creates a new Kaggle Dataset or publishes a new version of an
+  existing one.
 
-Split-JSON-файлы `train.json`, `val.json` и `test.json` в итоговый датасет не записываются.
+The split JSON files `train.json`, `val.json` and `test.json` are not
+written into the final dataset.
 
-## 1. Итоговые классы
+## 1. Final classes
 
-Используется семь классов с непрерывной нумерацией YOLO:
+Seven classes with contiguous YOLO numbering:
 
-| ID | Класс |
+| ID | Class |
 |---:|---|
 | 0 | `bicycle` |
 | 1 | `bus` |
@@ -24,16 +28,18 @@ Split-JSON-файлы `train.json`, `val.json` и `test.json` в итоговы�
 | 5 | `traffic light` |
 | 6 | `truck` |
 
-Дополнительные правила:
+Additional rules:
 
-- `rider` объединяется с `person`;
-- `bike` объединяется с `bicycle`;
-- `motor` и `motorbike` объединяются с `motorcycle`;
-- классы объектов `train` и `traffic sign` полностью исключаются из разметки.
+- `rider` is merged into `person`;
+- `bike` is merged into `bicycle`;
+- `motor` and `motorbike` are merged into `motorcycle`;
+- the `train` and `traffic sign` object classes are excluded from labeling
+  entirely.
 
-Важно: удаление класса объектов `train` не связано с директорией split `images/train`. Обучающая выборка сохраняется.
+Note: dropping the `train` object class has nothing to do with the
+`images/train` split directory. The training split itself is kept.
 
-## 2. Итоговая структура
+## 2. Final structure
 
 ```text
 NVPD_UPDATE/
@@ -49,19 +55,20 @@ NVPD_UPDATE/
     └── test/
 ```
 
-Каждому изображению соответствует одноимённый `.txt` в `labels/<split>`:
+Each image has a matching `.txt` in `labels/<split>`:
 
 ```text
 class_id x_center y_center width height
 ```
 
-Координаты нормализованы в диапазон от `0` до `1`.
+Coordinates are normalized to the `0`-`1` range.
 
-## 3. Подготовка Kaggle Notebook
+## 3. Preparing the Kaggle Notebook
 
-Загрузите `prepare_bdd100k_nvpd.py` в текущий Notebook или добавьте файл как входной ресурс.
+Upload `prepare_bdd100k_nvpd.py` to the current notebook, or add it as an
+input resource.
 
-Установите зависимости:
+Install dependencies:
 
 ```python
 !pip install -q \
@@ -75,25 +82,26 @@ class_id x_center y_center width height
     tqdm
 ```
 
-Убедитесь, что скрипт доступен:
+Make sure the script is available:
 
 ```python
 from pathlib import Path
 
 SCRIPT_PATH = Path("prepare_bdd100k_nvpd.py")
-assert SCRIPT_PATH.is_file(), f"Скрипт не найден: {SCRIPT_PATH}"
+assert SCRIPT_PATH.is_file(), f"Script not found: {SCRIPT_PATH}"
 ```
 
-Если файл находится в другой директории, укажите соответствующий путь в командах ниже.
+If the file is in a different directory, adjust the path in the commands
+below accordingly.
 
-## 4. Настройка Kaggle credentials
+## 4. Configuring Kaggle credentials
 
-В настройках Kaggle Notebook добавьте два секрета:
+In the Kaggle Notebook settings, add two secrets:
 
 - `KAGGLE_USERNAME`;
 - `KAGGLE_KEY`.
 
-Затем экспортируйте их в переменные окружения:
+Then export them into environment variables:
 
 ```python
 import os
@@ -105,17 +113,18 @@ os.environ["KAGGLE_USERNAME"] = secrets.get_secret("KAGGLE_USERNAME")
 os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
 ```
 
-Проверьте авторизацию:
+Check authorization:
 
 ```python
 !kaggle datasets list --mine
 ```
 
-Не выводите значение `KAGGLE_KEY` в лог Notebook.
+Do not print the `KAGGLE_KEY` value into the notebook log.
 
-## 5. Вариант A: BDD100K ещё не скачан
+## 5. Option A: BDD100K not downloaded yet
 
-Скрипт самостоятельно скачает исходный датасет `solesensei/solesensei_bdd100k`:
+The script downloads the source `solesensei/solesensei_bdd100k` dataset by
+itself:
 
 ```python
 !python "prepare_bdd100k_nvpd.py" \
@@ -129,11 +138,13 @@ os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
     --output-dataset-title "nvpdyf_bdd100k"
 ```
 
-На этом шаге датасет собирается локально в `/kaggle/working/NVPD_UPDATE`, но ещё не публикуется.
+At this step the dataset is built locally under
+`/kaggle/working/NVPD_UPDATE`, but is not published yet.
 
-## 6. Вариант B: BDD100K уже скачан
+## 6. Option B: BDD100K already downloaded
 
-Если исходные изображения и аннотации уже находятся внутри `bdd100k_raw`, добавьте `--skip-download`:
+If the source images and annotations already sit inside `bdd100k_raw`, add
+`--skip-download`:
 
 ```python
 !python "prepare_bdd100k_nvpd.py" \
@@ -148,18 +159,19 @@ os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
     --output-dataset-title "nvpdyf_bdd100k"
 ```
 
-Скрипт самостоятельно ищет:
+The script looks for these on its own:
 
 - `images/100k/train`;
 - `images/100k/val`;
 - `bdd100k_labels_images_train.json`;
 - `bdd100k_labels_images_val.json`.
 
-Поэтому внешняя структура архива BDD100K может отличаться.
+So the outer structure of the BDD100K archive can vary.
 
-## 7. Сборка и публикация одной командой
+## 7. Build and publish in one command
 
-Для автоматического выбора между созданием и обновлением используйте `--publish --publish-mode auto`:
+To automatically choose between creating and updating, use
+`--publish --publish-mode auto`:
 
 ```python
 !python "prepare_bdd100k_nvpd.py" \
@@ -177,16 +189,18 @@ os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
     --public
 ```
 
-Режим `auto`:
+`auto` mode:
 
-- создаёт новый датасет, если `KAGGLE_USERNAME/nvpdyf-bdd100k` ещё не существует;
-- создаёт новую версию, если датасет уже существует.
+- creates a new dataset if `KAGGLE_USERNAME/nvpdyf-bdd100k` does not exist
+  yet;
+- creates a new version if the dataset already exists.
 
-Флаг `--public` применяется только при создании нового датасета. Без него новый датасет будет приватным.
+The `--public` flag only applies when creating a new dataset. Without it,
+a new dataset is private.
 
-## 8. Явное создание нового датасета
+## 8. Explicitly creating a new dataset
 
-Используйте этот режим только один раз, когда датасет ещё не существует:
+Use this mode only once, when the dataset does not exist yet:
 
 ```python
 !python "prepare_bdd100k_nvpd.py" \
@@ -202,9 +216,9 @@ os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
     --public
 ```
 
-## 9. Обновление существующего датасета
+## 9. Updating an existing dataset
 
-Для публикации новой версии используйте:
+To publish a new version, use:
 
 ```python
 !python "prepare_bdd100k_nvpd.py" \
@@ -220,9 +234,9 @@ os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
     --version-message "Rebuilt YOLO dataset with all daytime/night BDD100K val images in test"
 ```
 
-## 10. Проверка локального результата
+## 10. Checking the local result
 
-Проверьте основные файлы и директории:
+Check the core files and directories:
 
 ```python
 from pathlib import Path
@@ -241,7 +255,7 @@ required_paths = [
 ]
 
 for path in required_paths:
-    assert path.exists(), f"Не найдено: {path}"
+    assert path.exists(), f"Not found: {path}"
 
 for split in ("train", "val", "test"):
     image_count = len(list((DATASET_ROOT / "images" / split).glob("*.jpg")))
@@ -253,10 +267,10 @@ for split in ("train", "val", "test"):
 for filename in ("train.json", "val.json", "test.json"):
     assert not (DATASET_ROOT / filename).exists(), filename
 
-print("Локальная структура корректна")
+print("Local structure is correct")
 ```
 
-Проверка ID классов:
+Class ID check:
 
 ```python
 valid_class_ids = set(range(7))
@@ -274,10 +288,10 @@ for label_path in (DATASET_ROOT / "labels").rglob("*.txt"):
         assert class_id in valid_class_ids
         found_class_ids.add(class_id)
 
-print("Найденные class_id:", sorted(found_class_ids))
+print("Found class_id values:", sorted(found_class_ids))
 ```
 
-## 11. Проверка публикации
+## 11. Checking the publication
 
 ```python
 DATASET_REF = f"{os.environ['KAGGLE_USERNAME']}/nvpdyf-bdd100k"
@@ -292,81 +306,84 @@ print(DATASET_REF)
 !kaggle datasets files "$KAGGLE_USERNAME/nvpdyf-bdd100k" --page-size 200
 ```
 
-## 12. Полезные параметры скрипта
+## 12. Useful script parameters
 
-Посмотреть полный список параметров:
+See the full list of parameters:
 
 ```python
 !python "/kaggle/working/prepare_bdd100k_nvpd.py" --help
 ```
 
-Основные параметры:
+Main parameters:
 
-| Параметр | Назначение |
+| Parameter | Purpose |
 |---|---|
-| `--raw-dir` | Директория исходного BDD100K |
-| `--output-dir` | Директория итогового YOLO-датасета |
-| `--skip-download` | Не скачивать BDD100K повторно |
-| `--force-download` | Принудительно скачать BDD100K заново |
-| `--overwrite-output` | Полностью пересоздать непустую выходную директорию |
-| `--workers` | Количество потоков обработки и копирования |
-| `--random-state` | Seed для воспроизводимого формирования train/val |
-| `--kaggle-owner` | Kaggle username или организация |
-| `--output-dataset-slug` | Slug итогового Kaggle Dataset |
-| `--output-dataset-title` | Отображаемое название Kaggle Dataset |
-| `--publish` | Опубликовать результат после сборки |
-| `--publish-mode auto` | Создать датасет или обновить существующий автоматически |
-| `--publish-mode create` | Явно создать новый датасет |
-| `--publish-mode version` | Явно создать новую версию датасета |
-| `--public` | Сделать новый датасет публичным |
-| `--version-message` | Комментарий к новой версии |
+| `--raw-dir` | Source BDD100K directory |
+| `--output-dir` | Output YOLO dataset directory |
+| `--skip-download` | Do not re-download BDD100K |
+| `--force-download` | Force re-downloading BDD100K |
+| `--overwrite-output` | Fully rebuild a non-empty output directory |
+| `--workers` | Number of processing/copying threads |
+| `--random-state` | Seed for a reproducible train/val split |
+| `--kaggle-owner` | Kaggle username or organization |
+| `--output-dataset-slug` | Slug of the output Kaggle Dataset |
+| `--output-dataset-title` | Display title of the Kaggle Dataset |
+| `--publish` | Publish the result after building |
+| `--publish-mode auto` | Create the dataset or update the existing one automatically |
+| `--publish-mode create` | Explicitly create a new dataset |
+| `--publish-mode version` | Explicitly create a new dataset version |
+| `--public` | Make the new dataset public |
+| `--version-message` | Message for the new version |
 
-## 13. Частые ошибки
+## 13. Common errors
 
-### Выходная директория не пустая
+### Output directory is not empty
 
 ```text
 Output directory is not empty
 ```
 
-Добавьте `--overwrite-output`. Скрипт удалит и заново создаст только явно указанную выходную директорию.
+Add `--overwrite-output`. The script only deletes and rebuilds the
+explicitly specified output directory.
 
-### Исходный BDD100K не найден
+### Source BDD100K not found
 
-Если используется `--skip-download`, проверьте значение `--raw-dir`. Внутри него должны находиться исходные изображения и JSON-аннотации BDD100K.
+If `--skip-download` is used, check the `--raw-dir` value. It must contain
+the source BDD100K images and JSON annotations.
 
-### Не найден Kaggle CLI
+### Kaggle CLI not found
 
 ```text
 The Kaggle CLI was not found
 ```
 
-Установите пакет:
+Install the package:
 
 ```python
 !pip install -q --upgrade kaggle
 ```
 
-### Не установлен пакет стратификации
+### Stratification package not installed
 
 ```text
 The iterative-stratification package is required
 ```
 
-Установите его:
+Install it:
 
 ```python
 !pip install -q iterative-stratification
 ```
 
-### Ошибка авторизации Kaggle
+### Kaggle authorization error
 
-Повторно проверьте секреты `KAGGLE_USERNAME` и `KAGGLE_KEY`, затем выполните:
+Double-check the `KAGGLE_USERNAME` and `KAGGLE_KEY` secrets, then run:
 
 ```python
 !kaggle datasets list --mine
 ```
 
-### Датасет уже существует
+### Dataset already exists
 
-Вместо `--publish-mode create` используйте `--publish-mode version` или `--publish-mode auto`.
+Use `--publish-mode version` or `--publish-mode auto` instead of
+`--publish-mode create`.

@@ -1,9 +1,9 @@
 # ultralytics' own default augmentations - the exact values the first
-# notebook run (журнал, строка №2) trained with, copied from its logged args.
+# notebook run (log line #2) trained with, copied from its logged args.
 # Kept as a named group so "with augmentations" is reproducible instead of
 # meaning "whatever this ultralytics version defaults to today".
 #
-# Measured effect of turning these OFF (augment=none, строка №8): night mAP
+# Measured effect of turning these OFF (augment=none, line #8): night mAP
 # 0.2516 -> 0.2153, day 0.2726 -> 0.2420, night/day gap 7.71% -> 11.04%.
 # Night lost more than day, most likely because hsv_v randomly re-exposes
 # frames and so acts as a free "night" regularizer.

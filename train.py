@@ -208,15 +208,15 @@ def main(config):
         comet_run.log_eval("night", ft_night)
         comet_run.log_eval("day", ft_day)
 
-        # Разбор ошибок глазами: метрики говорят, ЧТО просело, а картинки —
-        # почему именно (пропуск / рамка мимо / ложное срабатывание на блике).
-        # Кадры фиксированные (первые по имени), поэтому их можно сравнивать
-        # между запусками; случайная выборка такого не позволяет.
+        # Eyeballing the errors: metrics say WHAT dropped, figures say WHY
+        # (missed object / box off target / false positive on a glare).
+        # Frames are fixed (first by name), so they stay comparable between
+        # runs; a random sample would not allow that.
         n_samples = config.trainer.num_visualization_samples
         for split, split_records in (("night", night_records), ("day", day_records)):
             samples = sorted(split_records, key=lambda r: r["name"])[:n_samples]
             if not samples:
-                logger.info("нет кадров '%s' для отрисовки, пропускаю", split)
+                logger.info("no '%s' frames to draw, skipping", split)
                 continue
             figure = Path(weights_save_dir) / f"predictions_{split}.png"
             draw_comparison(
@@ -229,7 +229,7 @@ def main(config):
                 title=split,
             )
             comet_run.log_image(figure, f"predictions_{split}")
-            logger.info("сохранено: %s", figure)
+            logger.info("saved: %s", figure)
 
     metrics = {"fine-tuned/night": ft_night, "fine-tuned/day": ft_day}
     if config.trainer.eval_zero_shot:

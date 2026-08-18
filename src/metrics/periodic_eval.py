@@ -71,11 +71,11 @@ class PeriodicNightDayEval:
     def attach(self, model):
         """Register on an ultralytics model whose train() is about to run."""
         if self.every_k <= 0:
-            logger.info("периодическая оценка выключена (eval_every_k_epochs=0)")
+            logger.info("periodic evaluation disabled (eval_every_k_epochs=0)")
             return
         model.add_callback("on_fit_epoch_end", self._on_fit_epoch_end)
         logger.info(
-            "периодическая оценка: каждые %d эпох, night=%d day=%d кадров",
+            "periodic evaluation: every %d epochs, night=%d day=%d frames",
             self.every_k,
             len(self.night_records),
             len(self.day_records),
@@ -101,8 +101,8 @@ class PeriodicNightDayEval:
             last = getattr(trainer, "last", None)
             if last is not None and Path(last).is_file():
                 logger.warning(
-                    "снимок EMA не удался (%s), беру last.pt — он может "
-                    "отставать на эпоху",
+                    "EMA snapshot failed (%s), falling back to last.pt — it may "
+                    "lag by one epoch",
                     e,
                 )
                 return YOLO(str(last)), "last.pt"
@@ -116,7 +116,7 @@ class PeriodicNightDayEval:
         model = None
         try:
             model, source = self._snapshot(trainer)
-            logger.info("эпоха %d: замеряю ночь/день (веса: %s)", epoch, source)
+            logger.info("epoch %d: measuring night/day (weights: %s)", epoch, source)
 
             night = evaluate_detector(
                 model, self.night_records, desc=f"ep{epoch} night", **self.eval_kwargs
@@ -127,7 +127,7 @@ class PeriodicNightDayEval:
 
             gap = (day["map"] - night["map"]) / day["map"] * 100 if day["map"] else 0.0
             logger.info(
-                "эпоха %d: night mAP=%.4f  day mAP=%.4f  разрыв=%.2f%%",
+                "epoch %d: night mAP=%.4f  day mAP=%.4f  gap=%.2f%%",
                 epoch,
                 night["map"],
                 day["map"],
@@ -144,7 +144,7 @@ class PeriodicNightDayEval:
 
             self._draw(model, epoch)
         except Exception as e:
-            logger.warning("периодическая оценка на эпохе %d не удалась: %s", epoch, e)
+            logger.warning("periodic evaluation failed at epoch %d: %s", epoch, e)
         finally:
             del model
             if torch.cuda.is_available():
@@ -172,8 +172,6 @@ class PeriodicNightDayEval:
                     self.comet_run.log_image(
                         figure, f"predictions_{split}", epoch=epoch
                     )
-                logger.info("сохранено: %s", figure)
+                logger.info("saved: %s", figure)
             except Exception as e:
-                logger.warning(
-                    "не удалось нарисовать %s на эпохе %d: %s", split, epoch, e
-                )
+                logger.warning("could not draw %s at epoch %d: %s", split, epoch, e)

@@ -108,7 +108,9 @@ def draw_comparison(model, records, out_path, imgsz, conf, device, title=""):
                 )
             )
             ax.text(x, y - 4, CLASSES[c], color="lime", fontsize=7)
-        ax.set_title(f"{title} {r['name']} — разметка: {len(r['boxes'])}", fontsize=10)
+        ax.set_title(
+            f"{title} {r['name']} — ground truth: {len(r['boxes'])}", fontsize=10
+        )
         ax.axis("off")
 
         res = model.predict(
@@ -137,7 +139,7 @@ def draw_comparison(model, records, out_path, imgsz, conf, device, title=""):
                 fontsize=7,
             )
             kept += 1
-        ax.set_title(f"предсказание (conf ≥ {conf}) — найдено: {kept}", fontsize=10)
+        ax.set_title(f"prediction (conf ≥ {conf}) — found: {kept}", fontsize=10)
         ax.axis("off")
 
     plt.tight_layout()
