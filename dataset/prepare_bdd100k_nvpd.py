@@ -32,13 +32,14 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
+import yaml
 from PIL import Image
 from sklearn.preprocessing import MultiLabelBinarizer
-import yaml
 
 try:
     from tqdm.auto import tqdm
 except ImportError:
+
     def tqdm(iterable: Iterable[Any], **_: Any) -> Iterable[Any]:
         """Fallback iterator when optional tqdm progress bars are unavailable."""
         return iterable
@@ -326,9 +327,7 @@ def resolve_dataset_layout(raw_dir: Path) -> DatasetLayout:
     return DatasetLayout(
         train_images_dir=find_image_directory(raw_dir, "train"),
         val_images_dir=find_image_directory(raw_dir, "val"),
-        train_labels_path=find_unique_file(
-            raw_dir, "bdd100k_labels_images_train.json"
-        ),
+        train_labels_path=find_unique_file(raw_dir, "bdd100k_labels_images_train.json"),
         val_labels_path=find_unique_file(raw_dir, "bdd100k_labels_images_val.json"),
     )
 
@@ -498,7 +497,9 @@ def build_frame_yolo_label(
     try:
         image_path = image_index[filename]
     except KeyError as error:
-        raise FileNotFoundError(f"Image not found for annotation: {filename}") from error
+        raise FileNotFoundError(
+            f"Image not found for annotation: {filename}"
+        ) from error
 
     with Image.open(image_path) as image:
         image_width, image_height = image.size
@@ -568,8 +569,7 @@ def build_frame_yolo_label(
 
         class_id = YOLO_LABEL_TO_ID[yolo_label]
         lines.append(
-            f"{class_id} {x_center:.8f} {y_center:.8f} "
-            f"{width:.8f} {height:.8f}"
+            f"{class_id} {x_center:.8f} {y_center:.8f} " f"{width:.8f} {height:.8f}"
         )
         stats["objects"] += 1
         stats[f"class:{yolo_label}"] += 1
@@ -649,9 +649,7 @@ def extract_stratification_tokens(row: pd.Series) -> list[str]:
             for obj in labels
             if isinstance(obj, dict) and obj.get("category") is not None
         }
-        tokens.extend(
-            f"object:{category}" for category in sorted(object_categories)
-        )
+        tokens.extend(f"object:{category}" for category in sorted(object_categories))
 
     return tokens
 
@@ -760,7 +758,11 @@ def assert_unique_names(dataframe: pd.DataFrame, dataframe_name: str) -> None:
     duplicated = dataframe["name"].astype(str).duplicated(keep=False)
     if duplicated.any():
         examples = (
-            dataframe.loc[duplicated, "name"].astype(str).drop_duplicates().head().tolist()
+            dataframe.loc[duplicated, "name"]
+            .astype(str)
+            .drop_duplicates()
+            .head()
+            .tolist()
         )
         raise ValueError(
             f"{dataframe_name} contains duplicate image names. Examples: {examples}"
@@ -797,12 +799,8 @@ def create_balanced_train_val(
         len(night),
     )
 
-    selected_daytime = diverse_sample(
-        daytime, selected_daytime_count, random_state
-    )
-    selected_night = diverse_sample(
-        night, selected_night_count, random_state + 1
-    )
+    selected_daytime = diverse_sample(daytime, selected_daytime_count, random_state)
+    selected_night = diverse_sample(night, selected_night_count, random_state + 1)
 
     train_daytime, val_daytime = diverse_train_val_split(
         selected_daytime,
@@ -913,7 +911,11 @@ def prepare_output_directory(output_dir: Path, overwrite: bool) -> None:
                 f"Output directory is not empty: {output_dir}. "
                 "Use --overwrite-output to rebuild it."
             )
-        protected_paths = {Path("/").resolve(), Path.home().resolve(), Path.cwd().resolve()}
+        protected_paths = {
+            Path("/").resolve(),
+            Path.home().resolve(),
+            Path.cwd().resolve(),
+        }
         if output_dir.resolve() in protected_paths:
             raise ValueError(f"Refusing to delete protected path: {output_dir}")
         shutil.rmtree(output_dir)
@@ -1083,7 +1085,8 @@ def validate_yolo_dataset(
                     )
 
     unexpected_json = [
-        output_dir / f"{split_name}.json" for split_name in splits
+        output_dir / f"{split_name}.json"
+        for split_name in splits
         if (output_dir / f"{split_name}.json").exists()
     ]
     if unexpected_json:

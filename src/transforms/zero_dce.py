@@ -18,7 +18,6 @@ from torch import Tensor
 
 from src.model.zero_dce_net import enhance_net_nopool
 
-
 ImageInput: TypeAlias = Image.Image | np.ndarray | Tensor
 
 
@@ -53,9 +52,7 @@ class ZeroDCETransform:
         use_amp: bool = True,
     ) -> None:
         if not 0.0 <= probability <= 1.0:
-            raise ValueError(
-                f"probability must be between 0 and 1, got {probability}."
-            )
+            raise ValueError(f"probability must be between 0 and 1, got {probability}.")
 
         self.weights_path = Path(weights_path).expanduser().resolve()
         if not self.weights_path.is_file():
@@ -142,9 +139,7 @@ class ZeroDCETransform:
             raise TypeError(f"Unsupported image type: {type(image)!r}")
 
         if image.ndim != 3:
-            raise ValueError(
-                f"Expected a CHW tensor, got shape={tuple(image.shape)}."
-            )
+            raise ValueError(f"Expected a CHW tensor, got shape={tuple(image.shape)}.")
         if image.shape[0] != 3:
             raise ValueError(
                 "Zero-DCE expects three RGB channels, "
@@ -189,10 +184,4 @@ class ZeroDCETransform:
         with amp_context:
             _, enhanced, _ = self.model(batch)
 
-        return (
-            enhanced
-            .squeeze(0)
-            .to(dtype=torch.float32)
-            .clamp(0.0, 1.0)
-            .cpu()
-        )
+        return enhanced.squeeze(0).to(dtype=torch.float32).clamp(0.0, 1.0).cpu()

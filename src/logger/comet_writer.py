@@ -310,9 +310,7 @@ class CometRunLogger:
             metrics (dict): output of ``evaluate_detector``.
             epoch (int | None): epoch to stamp; defaults to the last logged one.
         """
-        self.log_metrics(
-            {f"{split}/{k}": v for k, v in metrics.items()}, epoch=epoch
-        )
+        self.log_metrics({f"{split}/{k}": v for k, v in metrics.items()}, epoch=epoch)
 
     def log_metrics(self, payload, epoch=None):
         """Log an arbitrary flat dict of scalars at a given epoch.

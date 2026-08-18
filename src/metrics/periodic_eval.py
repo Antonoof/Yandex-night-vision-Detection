@@ -169,7 +169,11 @@ class PeriodicNightDayEval:
                     title=f"{split} ep{epoch}",
                 )
                 if self.comet_run is not None:
-                    self.comet_run.log_image(figure, f"predictions_{split}", epoch=epoch)
+                    self.comet_run.log_image(
+                        figure, f"predictions_{split}", epoch=epoch
+                    )
                 logger.info("сохранено: %s", figure)
             except Exception as e:
-                logger.warning("не удалось нарисовать %s на эпохе %d: %s", split, epoch, e)
+                logger.warning(
+                    "не удалось нарисовать %s на эпохе %d: %s", split, epoch, e
+                )
