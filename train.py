@@ -18,7 +18,7 @@ from src.datasets import bdd100k
 from src.logger import CometRunLogger, log_evaluation_run, setup_logging
 from src.metrics import PeriodicNightDayEval, evaluate_detector, print_results
 from src.model import log_head_info
-from src.utils.init_utils import resolve_device, set_random_seed
+from src.utils.init_utils import as_torch_device, resolve_device, set_random_seed
 from src.utils.io_utils import ROOT_PATH
 from src.utils.visualize import draw_comparison
 
@@ -69,9 +69,38 @@ def main(config):
         {r["name"] for r in train_used} & {r["name"] for r in val_records}
     ), "the same frame is present in both train and val!"
 
+    # Image preprocessing (e.g. Zero-DCE low-light enhancement) is applied once,
+    # here, while the training view of the dataset is written - not inside the
+    # dataloader. The enhanced frames land on disk as ordinary uint8 JPEGs, so
+    # ultralytics' own preprocessing stays untouched; feeding it the [0, 1]
+    # float tensors the transform returns would darken every frame ~255x and
+    # never raise. Boxes need no adjustment: the transform is per-pixel.
+    transform = None
+    transform_cfg = config.preprocess.transform
+    if transform_cfg is not None:
+        # only pass what this particular transform declares: the control
+        # transform has neither weights nor a device.
+        overrides = {}
+        if "weights_path" in transform_cfg:
+            overrides["weights_path"] = str(ROOT_PATH / transform_cfg.weights_path)
+        if "device" in transform_cfg:
+            overrides["device"] = as_torch_device(device)
+        transform = instantiate(transform_cfg, **overrides)
+        logger.info(
+            "препроцессинг: %s (apply_to=%s, jpeg q=%s)",
+            config.preprocess.name,
+            config.preprocess.apply_to,
+            config.preprocess.jpeg_quality,
+        )
+
     data_yaml = bdd100k.build_yolo_dataset(
-        {"train": train_used, "val": val_records}, ROOT_PATH / config.datasets.work_dir
+        {"train": train_used, "val": val_records},
+        ROOT_PATH / config.datasets.work_dir,
+        transform=transform,
+        apply_to=config.preprocess.apply_to,
+        jpeg_quality=config.preprocess.jpeg_quality,
     )
+    transform = None  # done with it: free the enhancement net before training
 
     night_records = [r for r in val_records if r["timeofday"] == "night"]
     day_records = [r for r in val_records if r["timeofday"] == "daytime"]
@@ -127,11 +156,17 @@ def main(config):
     # One experiment for the whole fine-tuning run: the per-epoch curves
     # (losses, lr, grad_norm, per-class AP/R) and the final night/day
     # metrics belong together, otherwise neither half can be read alone.
+    tags = ["stage:baseline", "method:finetune-head"]
+    if config.preprocess.name != "none":
+        tags = ["stage:preproc", f"method:{config.preprocess.name}"]
+
     with CometRunLogger(
         config.trainer.run_name,
-        ["stage:baseline", "method:finetune-head"],
+        tags,
         {
             "model": config.model.weights,
+            "preprocess": config.preprocess.name,
+            "preprocess_apply_to": config.preprocess.apply_to,
             "epochs": config.trainer.epochs,
             "batch": config.trainer.batch,
             "imgsz": config.trainer.imgsz,
@@ -237,6 +272,7 @@ def main(config):
 
     summary = {
         "dataset_version": config.writer.dataset_version,
+        "preprocess": config.preprocess.name,
         "model": config.model.weights,
         "imgsz": config.trainer.imgsz,
         "epochs": config.trainer.epochs,

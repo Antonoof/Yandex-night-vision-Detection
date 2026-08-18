@@ -1,0 +1,9 @@
+# Control run: pushes every frame through the same write path as zero_dce,
+# but without enhancing anything. Isolates the cost of JPEG re-encoding, so
+# that `reencode` vs `zero_dce` is the effect of Zero-DCE alone rather than
+# the effect of Zero-DCE plus re-encoding. Same disk/time cost as zero_dce.
+name: reencode
+apply_to: all
+jpeg_quality: 95
+transform:
+  _target_: src.transforms.IdentityTransform

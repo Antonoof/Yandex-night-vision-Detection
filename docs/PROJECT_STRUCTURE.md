@@ -32,11 +32,15 @@ src/configs/                 every tunable value (see "Configs" below)
   writer/comet.yaml            Comet project name + dataset version
   augment/none.yaml            all augmentations off - the clean baseline
   augment/default.yaml         ultralytics' defaults, as the first notebook ran
+  preprocess/none.yaml         no image preprocessing (the baseline)
+  preprocess/zero_dce.yaml     Zero-DCE low-light enhancement, applied offline
+  preprocess/reencode.yaml     control: same write path, no enhancement
 
 src/datasets/bdd100k.py      reads the YOLO-format dataset; CLASSES; COCO80_TO_OURS
 src/model/yolo_model.py      build_model (YOLO wrapper) + log_head_info
 src/model/zero_dce_net.py    Zero-DCE curve-estimation network (enhance_net_nopool)
 src/transforms/zero_dce.py   ZeroDCETransform: low-light enhancement of one frame
+src/transforms/identity.py   IdentityTransform: the control (re-encode only)
 src/metrics/detection.py     COCO mAP via torchmetrics, night/day separately
 src/metrics/periodic_eval.py night/day mAP + figures every K epochs, mid-training
 src/logger/comet_writer.py   Comet: training curves + evaluation runs
@@ -97,6 +101,7 @@ python3 train.py augment=none augment.fliplr=0.5     # swap a group, then a key
 | evaluation `conf` / `iou` / `max_det` | `metrics/detection.yaml` |
 | Comet project name, `dataset_version` | `writer/comet.yaml` |
 | augmentation hyperparameters | `augment/` group: `none.yaml` or `default.yaml` |
+| image preprocessing (Zero-DCE) | `preprocess/` group: `none` / `zero_dce` / `reencode` |
 | checkpoint to evaluate, visualization settings | `inference.yaml` → `inferencer:` |
 | **class list, COCO mapping, frame size** | `src/datasets/bdd100k.py` (code, on purpose) |
 | **metric names** | `src/metrics/detection.py` (`RESULT_KEYS`) and `src/logger/comet_writer.py` |
@@ -156,6 +161,15 @@ data/bdd_yolo/
 
 Frames with no objects still get an (empty) `.txt` — those are background
 images, and they teach the model not to invent objects.
+
+With `preprocess=zero_dce` the images are not symlinks but real re-encoded
+JPEGs, written once here rather than transformed in the dataloader. Two
+reasons this is the offline path and not a dataloader hook: ultralytics
+expects HWC uint8 and divides by 255 itself, so handing it the `[0, 1]` float
+tensor the transform returns would darken every frame ~255x **without
+raising**; and Zero-DCE is per-pixel, so the boxes stay valid untouched.
+`build_yolo_dataset` also rewrites each record's `path`, so evaluation and the
+figures read exactly the pixels the model trained on.
 
 **The `test` split is never read.** `build_yolo_dataset` only ever writes
 `train` and `val`, so ultralytics cannot see `test` even though it sits in

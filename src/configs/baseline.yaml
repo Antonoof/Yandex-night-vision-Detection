@@ -4,6 +4,7 @@ defaults:
   - metrics: detection
   - writer: comet
   - augment: none
+  - preprocess: none
   - _self_
 
 trainer:

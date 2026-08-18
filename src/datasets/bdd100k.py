@@ -14,6 +14,7 @@ import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import numpy as np
 import yaml
 from PIL import Image
 from tqdm.auto import tqdm
@@ -234,24 +235,67 @@ def _link_or_copy(src, dst):
         shutil.copy2(src, dst)
 
 
-def build_yolo_dataset(splits, out_dir):
+def _transform_and_save(src, dst, transform, quality=95):
+    """Run one frame through an image transform and write it as JPEG.
+
+    The transform is expected to return a ``[3, H, W]`` float tensor in
+    ``[0, 1]`` (that is what ``ZeroDCETransform`` produces). It is scaled back
+    to ``uint8`` here so that everything downstream keeps reading ordinary
+    JPEGs: ultralytics wants HWC uint8 and divides by 255 itself, so handing
+    it a [0, 1] tensor would darken every frame ~255x without raising.
+
+    Re-encoding is lossy, so it is a (small) confounder on its own: quality=95
+    with no chroma subsampling keeps it well below the effect being measured,
+    but a fully clean comparison needs a control run that re-encodes without
+    enhancing.
+    """
+    with Image.open(src) as im:
+        enhanced = transform(im.convert("RGB"))
+    array = enhanced.clamp(0.0, 1.0).permute(1, 2, 0).numpy()
+    array = (array * 255.0).round().astype(np.uint8)
+    Image.fromarray(array).save(dst, quality=quality, subsampling=0)
+
+
+def build_yolo_dataset(splits, out_dir, transform=None, apply_to="all", jpeg_quality=95):
     """Build the images/labels tree + data.yaml that ultralytics expects.
 
     The source dataset is already in this format, but it is rebuilt anyway:
     subsample() may have dropped frames, and the source tree also holds the
     test split, which must never be visible to training.
 
+    **This mutates each record's "path" to point at the frame it just wrote.**
+    That is the point: evaluation, visualization and training must all read
+    the same pixels. With no transform the new path is a symlink to the
+    original, so nothing changes; with a transform it is the enhanced frame,
+    and measuring the model on the untouched originals would be measuring a
+    different experiment than the one that was trained.
+
     Args:
         splits (dict[str, list[dict]]): e.g. {"train": [...], "val": [...]},
             each value a list of records from load_records/subsample.
         out_dir (str | Path): destination folder; wiped and rebuilt if it
             already exists.
+        transform (callable | None): applied per frame, e.g. ZeroDCETransform.
+            None keeps the cheap symlink path.
+        apply_to (str): "all", or a timeofday value ("night"/"daytime") to
+            enhance only those frames. Mixing enhanced and untouched frames
+            also mixes JPEG re-encoding into the night/day comparison, so
+            "all" is the honest default.
+        jpeg_quality (int): quality for frames written through a transform.
     Returns:
         data_yaml (Path): path to the written data.yaml.
     """
     out_dir = Path(out_dir)
     if out_dir.exists():
         shutil.rmtree(out_dir)
+
+    if transform is not None:
+        logger.info(
+            "препроцессинг включён (%s): кадры пересохраняются как JPEG, "
+            "симлинки не используются - потребуется несколько ГБ на диске",
+            f"apply_to={apply_to}",
+        )
+    n_transformed = 0
 
     for split_name, split_records in splits.items():
         img_dir = out_dir / "images" / split_name
@@ -260,13 +304,23 @@ def build_yolo_dataset(splits, out_dir):
         lbl_dir.mkdir(parents=True)
 
         for r in tqdm(split_records, desc=f"{split_name:5s}", leave=False):
-            _link_or_copy(r["path"], img_dir / r["name"])
+            dst = img_dir / r["name"]
+            if transform is not None and apply_to in ("all", r["timeofday"]):
+                _transform_and_save(r["path"], dst, transform, jpeg_quality)
+                n_transformed += 1
+            else:
+                _link_or_copy(r["path"], dst)
+            # everything downstream must read what the model was trained on
+            r["path"] = dst
             lines = [
                 f"{c} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
                 for c, cx, cy, w, h in r["boxes"]
             ]
             # even frames with no objects get a (empty) label file
             (lbl_dir / f"{Path(r['name']).stem}.txt").write_text("\n".join(lines))
+
+    if transform is not None:
+        logger.info("осветлено кадров: %d", n_transformed)
 
     data_yaml = out_dir / "data.yaml"
     data_yaml.write_text(

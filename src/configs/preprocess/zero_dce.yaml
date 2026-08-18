@@ -1,0 +1,27 @@
+# Zero-DCE low-light enhancement, applied once when the training view of the
+# dataset is built (see build_yolo_dataset). Offline on purpose:
+#
+#  * the enhanced frames are written as ordinary uint8 JPEGs, so ultralytics
+#    keeps its own preprocessing untouched - no double /255, no BGR/RGB mixup;
+#  * Zero-DCE is per-pixel, it does not move anything, so the boxes stay valid
+#    without touching a single label;
+#  * it runs once per frame instead of once per epoch.
+#
+# Cost: the symlink trick stops working, so the built dataset becomes real
+# JPEGs (several GB), and the build itself takes ~20-30 min for ~46k frames.
+name: zero_dce
+# "all" enhances every frame. Enhancing only "night" would also mix JPEG
+# re-encoding into the night/day comparison, which is exactly the axis this
+# project measures - so keep "all" unless you know why you want otherwise.
+apply_to: all
+# JPEG quality for the written frames. 95 keeps re-encoding artefacts well
+# below the effect being measured; lower it if disk space is tight (~46k
+# frames at q95 is roughly 10-12 GB).
+jpeg_quality: 95
+transform:
+  _target_: src.transforms.ZeroDCETransform
+  weights_path: weights/zero_dce_Epoch99.pth
+  # replaced at runtime with the resolved trainer.device
+  device: auto
+  probability: 1.0
+  use_amp: true

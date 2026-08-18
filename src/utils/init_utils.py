@@ -34,3 +34,14 @@ def resolve_device(device_cfg):
     if device_cfg == "auto":
         return 0 if torch.cuda.is_available() else "cpu"
     return device_cfg
+
+
+def as_torch_device(device):
+    """Convert an ultralytics device value into one torch.device accepts.
+
+    ultralytics happily takes ``0`` or ``"0"`` for the first GPU, but
+    ``torch.device("0")`` raises - only ``"cuda:0"`` works. Anything that is
+    not a bare number ("cpu", "mps", "cuda:1") passes through unchanged.
+    """
+    text = str(device)
+    return f"cuda:{text}" if text.isdigit() else text

@@ -1,0 +1,6 @@
+# No image preprocessing: frames are symlinked as-is. This is the baseline
+# every preprocessing experiment must be compared against.
+name: none
+apply_to: all
+jpeg_quality: 95 # unused without a transform, kept so the group has one shape
+transform: null
