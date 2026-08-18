@@ -17,3 +17,14 @@ repos:
     rev: 24.4.2
     hooks:
       - id: black
+
+  - repo: local
+    hooks:
+      - id: no-cyrillic
+        name: english only (no Cyrillic)
+        description: >
+          This repo is English-only - docs, comments and log messages must
+          not contain Cyrillic. See README.md.
+        entry: python3 scripts/check_english_only.py
+        language: system
+        types: [text]

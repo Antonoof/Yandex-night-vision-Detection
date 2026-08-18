@@ -21,7 +21,8 @@ train.py                     entry point: build dataset -> fine-tune -> evaluate
 inference.py                 entry point: evaluate an existing checkpoint
 requirements.txt             dependencies (torch deliberately unpinned, see README)
 .python-version              3.11
-.pre-commit-config.yaml      black, isort, whitespace/YAML hooks
+.pre-commit-config.yaml      black, isort, whitespace/YAML hooks, no-cyrillic
+scripts/check_english_only.py  no-cyrillic hook: fails on Cyrillic text
 
 src/configs/                 every tunable value (see "Configs" below)
   baseline.yaml                train.py's root config

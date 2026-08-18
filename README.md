@@ -31,6 +31,10 @@ pip install -r requirements.txt
 pre-commit install
 ```
 
+This project is English-only: docs, comments, commit messages and log
+messages must not contain Cyrillic. The `no-cyrillic` pre-commit hook
+blocks commits that introduce any.
+
 ### Kaggle notebook
 
 See **[docs/KAGGLE.md](docs/KAGGLE.md)** for the full runbook (notebook
