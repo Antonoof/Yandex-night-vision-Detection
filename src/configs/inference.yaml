@@ -1,0 +1,17 @@
+defaults:
+  - model: baseline
+  - datasets: bdd100k
+  - metrics: detection
+  - transforms: night_zero_dce
+  - _self_
+
+inferencer:
+  weights: saved/runs/01_finetune_yolov8n_head/weights/best.pt
+  imgsz: 960
+  batch: 8
+  device: auto # device index/name or "auto"
+  seed: 42
+  save_path: saved/eval/01_finetune_yolov8n_head
+  save_visualizations: true
+  num_visualization_samples: 3
+  visualization_conf: 0.25 # human-facing threshold: only show confident boxes

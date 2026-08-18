@@ -1,0 +1,8 @@
+# conf=0.001, not the usual 0.25 - a fair COCO mAP sweep needs low-confidence
+# predictions too, otherwise recall at high IoU thresholds is undercounted.
+conf: 0.001
+iou: 0.7
+max_det: 300
+# Default Ultralytics budget is 0.05s/image and may truncate a low-conf mAP
+# pass. The pinned wrapper raises only the time budget, not metric thresholds.
+nms_max_time_img: 0.5

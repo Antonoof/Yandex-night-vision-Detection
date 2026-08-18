@@ -1,0 +1,29 @@
+defaults:
+  - model: baseline
+  - datasets: bdd100k
+  - metrics: detection
+  - writer: comet
+  - augment: road_safe
+  - transforms: night_zero_dce
+  - loss: adaptive
+  - _self_
+
+trainer:
+  epochs: 25
+  # Source frames are 1280x720. Ultralytics letterboxes/downscales them to
+  # imgsz; 960 retains more small-object detail than 640. Try 1280 with a
+  # smaller batch if GPU memory permits.
+  imgsz: 960
+  batch: 8
+  freeze: 0 # 0 = fine-tune the whole network; e.g. 10 = freeze the backbone
+  seed: 42
+  device: auto
+  workers: 2
+  patience: ${trainer.epochs}
+  save_dir: saved/runs
+  run_name: 02_adaptive_yolov8n_zero_dce
+  override: false
+  eval_zero_shot: true
+  eval_every_k_epochs: 3
+  num_visualization_samples: 6
+  visualization_conf: 0.25

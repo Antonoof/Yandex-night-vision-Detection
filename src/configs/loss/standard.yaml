@@ -1,0 +1,3 @@
+# Native Ultralytics v8 detection loss, useful as an ablation baseline.
+adaptive:
+  enabled: false

@@ -1,0 +1,27 @@
+# ultralytics' own default augmentations - the exact values the first
+# notebook run (журнал, строка №2) trained with, copied from its logged args.
+# Kept as a named group so "with augmentations" is reproducible instead of
+# meaning "whatever this ultralytics version defaults to today".
+#
+# Measured effect of turning these OFF (augment=none, строка №8): night mAP
+# 0.2516 -> 0.2153, day 0.2726 -> 0.2420, night/day gap 7.71% -> 11.04%.
+# Night lost more than day, most likely because hsv_v randomly re-exposes
+# frames and so acts as a free "night" regularizer.
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4 # brightness jitter - the one that matters most for this project
+degrees: 0.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.5
+bgr: 0.0
+mosaic: 1.0
+close_mosaic: 10 # last N epochs train without mosaic, to settle on real frames
+mixup: 0.0
+cutmix: 0.0
+copy_paste: 0.0
+auto_augment: randaugment
+erasing: 0.4

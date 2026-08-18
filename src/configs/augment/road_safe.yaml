@@ -1,0 +1,20 @@
+# Geometry-preserving road-scene recipe. Horizontal mirroring changes neither
+# object scale nor shape, and Ultralytics mirrors the bounding boxes with it.
+# Cropping, perspective, scale, mosaic, mixup and erasing remain disabled.
+hsv_h: 0.0
+hsv_s: 0.0
+hsv_v: 0.0
+degrees: 0.0
+translate: 0.0
+scale: 0.0
+shear: 0.0
+perspective: 0.0
+flipud: 0.0 # unsafe for road scenes
+fliplr: 0.5
+bgr: 0.0
+mosaic: 0.0
+mixup: 0.0
+cutmix: 0.0
+copy_paste: 0.0
+auto_augment: null
+erasing: 0.0

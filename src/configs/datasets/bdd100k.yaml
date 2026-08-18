@@ -1,0 +1,8 @@
+# root to search for a folder with data.yaml + images/ + timeofday.csv
+# (nested dirs are OK, e.g. Kaggle mounts it under /kaggle/input/...)
+input_dir: data/nvpdyf-bdd100k
+# where the training view of the dataset (symlinks + labels + data.yaml) is
+# written: the source tree also contains test/, which training must never see
+work_dir: data/bdd_yolo
+# null = train on everything; set an int for a quick subsample
+max_train_images: null

@@ -1,0 +1,34 @@
+# Per-image adaptive weighting around the native YOLO box + cls + DFL loss.
+adaptive:
+  enabled: true
+
+  # Keep the expected loss scale close to native YOLO while preserving the
+  # relative night/day multiplier even in a batch containing only night.
+  normalization: dataset_mean # dataset_mean | none
+  strict_timeofday: true
+
+  timeofday:
+    enabled: true
+    # manual gives the requested x5 night emphasis. Set inverse_frequency to
+    # derive night/day from the selected training subset automatically.
+    mode: manual # manual | inverse_frequency
+    weights:
+      daytime: 1.0
+      night: 5.0
+    power: 1.0
+    smoothing: 1.0
+    min_weight: 0.25
+    max_weight: 10.0
+
+  classes:
+    enabled: true
+    # weight_c ∝ 1 / count_c^power, calculated from train after subsampling.
+    # Ultralytics applies these weights directly to the BCE classification
+    # loss for every anchor/class; box and DFL retain their native scale.
+    mode: inverse_frequency # inverse_frequency | manual
+    power: 1.0
+    smoothing: 1.0
+    normalize: true
+    min_weight: 0.25
+    max_weight: 5.0
+    weights: {} # used only when mode=manual; keys are class names or ids

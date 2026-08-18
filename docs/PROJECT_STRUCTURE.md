@@ -1,0 +1,249 @@
+# Project structure
+
+How the pieces fit together, what lives where, and what happens when you
+run `python3 train.py`.
+
+## The shape of the project
+
+There is no notebook in the training path. Everything is a plain Python
+module; the two entry points are `train.py` and `inference.py`, and every
+number you might want to change lives in a [Hydra](https://hydra.cc) config
+under `src/configs/`.
+
+The rule the layout follows: **configs hold what varies between runs; code
+holds what defines what the data means.** `epochs` is a config value — you
+change it per experiment. The class list is not: changing it changes what
+the labels mean, and every previously logged metric would silently stop
+being comparable.
+
+```
+train.py                     entry point: build dataset -> fine-tune -> evaluate
+inference.py                 entry point: evaluate an existing checkpoint
+requirements.txt             dependencies (torch deliberately unpinned, see README)
+.python-version              3.11
+.pre-commit-config.yaml      black, isort, whitespace/YAML hooks
+
+src/configs/                 every tunable value (see "Configs" below)
+  adaptive.yaml                train.py's default root config
+  baseline.yaml                raw/unweighted ablation config
+  inference.yaml               inference.py's root config
+  model/baseline.yaml          which weights to start from
+  datasets/bdd100k.yaml        where the data is, where to build it
+  metrics/detection.yaml       inference thresholds for the mAP sweep
+  writer/comet.yaml            Comet project name + dataset version
+  augment/none.yaml            all augmentations off - the clean baseline
+  augment/road_safe.yaml       horizontal flip only
+  augment/default.yaml         ultralytics' defaults, as the first notebook ran
+  transforms/                  conditional Zero-DCE or none
+  loss/                        adaptive or native detection loss
+
+src/datasets/bdd100k.py      reads the YOLO-format dataset; CLASSES; COCO80_TO_OURS
+src/model/yolo_model.py      build_model (YOLO wrapper) + log_head_info
+src/model/zero_dce_net.py    Zero-DCE curve-estimation network (enhance_net_nopool)
+src/transforms/zero_dce.py   ZeroDCETransform: batched low-light enhancement
+src/transforms/dataset_preprocessor.py  conditional cache for train/val/inference
+src/training/adaptive_loss.py time-of-day loss + exact class BCE weights
+src/metrics/detection.py     COCO mAP via torchmetrics, night/day separately
+src/metrics/periodic_eval.py night/day mAP + figures every K epochs, mid-training
+src/logger/comet_writer.py   Comet: training curves + evaluation runs
+src/logger/logger.py         stdlib logging setup (console + info.log)
+src/logger/logger_config.json  logging handlers/formatters
+src/utils/init_utils.py      set_random_seed, resolve_device
+src/utils/io_utils.py        ROOT_PATH, read_json/write_json
+src/utils/visualize.py       draw_ground_truth, draw_predictions
+
+weights/                     small pretrained weights kept in git (Zero-DCE)
+dataset/prepare_bdd100k_nvpd.py  standalone: builds the dataset from raw BDD100K
+
+docs/EXPERIMENTS.md          run naming, tags, the metric contract
+docs/PROJECT_STRUCTURE.md    this file
+docs/ZERO_DCE.md             ZeroDCETransform reference
+notebooks/                   thin viewers over src/ - no logic of their own
+```
+
+Two paths are created at runtime and are not in git:
+
+* `data/bdd_yolo/` — the generated YOLO-format dataset (`datasets.work_dir`).
+* `data/preprocessed_cache/` — content-addressed Zero-DCE night frames.
+* `saved/runs/<run_name>/` — weights, `info.log`, `results.json`.
+
+## Configs
+
+`src/configs/adaptive.yaml` is the default root config for training. Its
+`defaults:` block pulls in one file from each group:
+
+```yaml
+defaults:
+  - model: baseline      # -> src/configs/model/baseline.yaml
+  - datasets: bdd100k    # -> src/configs/datasets/bdd100k.yaml
+  - metrics: detection
+  - writer: comet
+  - augment: road_safe
+  - transforms: night_zero_dce
+  - loss: adaptive
+  - _self_               # this file's own keys win over the groups
+```
+
+Hydra merges them into one object, and `train.py` reads it as
+`config.trainer.epochs`, `config.model.weights`, and so on. Anything is
+overridable from the command line without editing files:
+
+```bash
+python3 train.py trainer.epochs=1 datasets.max_train_images=200
+python3 train.py augment=none augment.fliplr=0.5     # swap a group, then a key
+```
+
+### Where each constant lives
+
+| What | Where |
+| --- | --- |
+| `epochs`, `imgsz`, `batch`, `seed`, `device`, `workers`, `patience` | root config (`adaptive.yaml` or `baseline.yaml`) → `trainer:` |
+| `freeze` (0 = train everything, 10 = freeze the backbone) | root config → `trainer:` |
+| `run_name`, `save_dir`, `override`, `eval_zero_shot` | root config → `trainer:` |
+| `eval_every_k_epochs` (night/day mAP + figures during training) | root config → `trainer:` |
+| starting weights (`yolov8n.pt`) | `model/baseline.yaml` |
+| dataset location, build location, `max_train_images` | `datasets/bdd100k.yaml` |
+| evaluation `conf` / `iou` / `max_det` | `metrics/detection.yaml` |
+| Comet project name, `dataset_version` | `writer/comet.yaml` |
+| augmentation hyperparameters | `augment/` group: `road_safe.yaml`, `none.yaml` or `default.yaml` |
+| conditional Zero-DCE and cache | `transforms/` group |
+| night/day and class loss weights | `loss/` group |
+| checkpoint to evaluate, visualization settings | `inference.yaml` → `inferencer:` |
+| **class list, COCO mapping, frame size** | `src/datasets/bdd100k.py` (code, on purpose) |
+| **metric names** | `src/metrics/detection.py` (`RESULT_KEYS`) and `src/logger/comet_writer.py` |
+| logging handlers/format | `src/logger/logger_config.json` |
+
+`ROOT_PATH` (`src/utils/io_utils.py`) is derived from the file's own
+location, so relative config paths resolve against the repo root no matter
+where you invoke the script from. An absolute value (e.g.
+`datasets.input_dir=/kaggle/input`) overrides it — `Path("/repo") /
+"/kaggle/input"` is `/kaggle/input`.
+
+## Where the data comes from
+
+Nothing is downloaded automatically. You provide a folder that contains,
+at any nesting depth:
+
+```
+images/{train,val,test}/*.jpg
+labels/{train,val,test}/*.txt
+data.yaml   timeofday.csv
+```
+
+`datasets.input_dir` points at a root to search under, not at the dataset
+itself: `find_dataset_root` walks it looking for a folder that has an
+`images/` subfolder, a `data.yaml` and a `timeofday.csv` next to each other.
+That is deliberate — on Kaggle the mount path varies between
+`/kaggle/input/<slug>/` and `/kaggle/input/datasets/<owner>/<slug>/`, and a
+recursive search survives both.
+
+On the way it also calls `_check_class_names`, which compares the dataset's
+`data.yaml` against `CLASSES` and refuses to continue if they disagree. Label
+files store bare integer ids, so a reordered `data.yaml` breaks nothing
+visibly — it just relabels every box and corrupts every metric silently. That
+failure has already happened once in this project, so it is checked rather
+than trusted.
+
+`load_records(data_root, split)` reads `labels/<split>/*.txt` and normalizes
+each frame into `{"name", "path", "timeofday", "boxes"}`, where `boxes` is a
+list of `(class_id, cx, cy, w, h)` — coordinates normalized to the frame
+size, which is the format YOLO wants. The split's contents come from
+`timeofday.csv`, not from a directory listing: a frame with no objects has no
+label file at all, and iterating the labels would quietly drop it. It also
+spot-checks the first frame against
+`IMG_W × IMG_H = 1280 × 720`: predictions are rescaled to each image's real
+size by ultralytics, so a frame-size mismatch would silently corrupt every
+mAP number rather than raise.
+
+`build_yolo_dataset` then writes the tree ultralytics actually reads:
+
+```
+data/bdd_yolo/
+  images/train/*.jpg     symlinks to the source frames (copy as a fallback)
+  labels/train/*.txt     one line per object: <class> <cx> <cy> <w> <h>
+  images/val/  labels/val/
+  data.yaml              path, train, val, names
+```
+
+Frames with no objects still get an (empty) `.txt` — those are background
+images, and they teach the model not to invent objects.
+
+**The `test` split is never read.** `build_yolo_dataset` only ever writes
+`train` and `val`, so ultralytics cannot see `test` even though it sits in
+the source tree. It stays untouched until the end of the project; it is the
+only independent check that survives repeated experimentation on `val`.
+
+## Which model, and what "replacing the head" means here
+
+`model/baseline.yaml` says `weights: yolov8n.pt` — the COCO-pretrained
+YOLOv8-nano (~3.2M parameters), downloaded by ultralytics on first use.
+Point it at any other checkpoint (`yolov8s.pt`, or a local `best.pt`) to
+change the starting point.
+
+**There is no "replace the head" flag.** It is a consequence of the data:
+
+1. `CLASSES` in `src/datasets/bdd100k.py` has 7 entries.
+2. `build_yolo_dataset` writes those 7 into `data.yaml` as `names:`.
+3. `model.train(data=data.yaml)` makes ultralytics build a `Detect` head
+   sized for 8 classes.
+4. Weights are transferred from `yolov8n.pt` only where the shapes match.
+   The classification branch `cv3` does not match — its internal width is
+   `max(ch[0], min(nc, 100))`, which is 80 for COCO and 64 for us — so the
+   whole branch stays randomly initialized. The backbone, the neck and the
+   box-regression branch `cv2` (which does not depend on the class count)
+   are inherited.
+
+Three places in the log prove it happened:
+
+| Evidence | Where |
+| --- | --- |
+| `nc (classes): 80`, `cv3 ... out_channels=80` | `log_head_info` on the pretrained model, before training |
+| `Transferred .../... items from pretrained weights` | ultralytics, at the start of training — the 33 missing tensors are `cv3` |
+| `nc (classes): 7`, `cv3 ... out_channels=7` | `log_head_info` on `best.pt`, after training |
+
+The parameter count drops with it: 3,157,200 for the 80-class model versus
+3,012,408 for ours.
+
+`trainer.freeze` is the separate knob: `0` fine-tunes everything, `10`
+freezes the first 10 modules (the backbone) so only the neck and head move.
+
+## What `python3 train.py` does, in order
+
+1. `set_random_seed(config.trainer.seed)` — torch, numpy, python `random`,
+   `PYTHONHASHSEED`, plus deterministic cuDNN.
+2. Refuses to start if `saved/runs/<run_name>/weights/` already exists,
+   unless `trainer.override=true`. A silently clobbered run is worse than
+   an error.
+3. `setup_logging` — everything from here on goes to the console *and* to
+   `saved/runs/<run_name>/info.log`.
+4. `resolve_device` — `"auto"` becomes GPU `0` if CUDA is available, else
+   `"cpu"`; anything else passes through (e.g. `"mps"`).
+5. Finds the dataset, loads `train`/`val` records, logs the class balance,
+   optionally subsamples, and asserts that no frame is in both splits.
+6. Builds the YOLO dataset tree and `data.yaml`.
+7. If `trainer.eval_zero_shot` (default true): loads the COCO-pretrained
+   model, dumps the head layout, and evaluates it on the night and day
+   subsets with `class_map=COCO80_TO_OURS` (COCO's 80 indices → our 7).
+   For the adaptive config it is logged as `00_zero_shot_zero_dce`; the raw
+   baseline keeps `00_baseline_zeroshot`. This is the "how bad is it before
+   fine-tuning" number for the same configured input preprocessing.
+8. Opens one Comet experiment for the fine-tuning run, attaches the
+   training callbacks (losses, lr, gradient norm, per-class AP/R), and
+   calls `model.train(...)` with the augmentation config unpacked into it.
+9. Loads `best.pt`, dumps its head layout, evaluates night and day, prints
+   the side-by-side table, and logs the results into the same experiment.
+10. Writes `results.json` next to the weights.
+
+`inference.py` is steps 3–5 and 9 for a checkpoint you already have, plus
+an optional `predictions.png`. It never touches Comet.
+
+## Outputs
+
+```
+saved/runs/<run_name>/
+  weights/best.pt  weights/last.pt
+  info.log                  everything the run logged
+  results.json              config + all four metric sets
+  results.csv, *.png        ultralytics' own curves and plots
+saved/eval/<save_path>/     inference.py: results.json, predictions.png
+```

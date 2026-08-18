@@ -1,0 +1,13 @@
+zero_dce:
+  enabled: false
+  weights_path: weights/zero_dce_Epoch99.pth
+  apply_to: []
+  splits: []
+  device: cpu
+  use_amp: false
+  batch_size: 1
+
+cache:
+  dir: data/preprocessed_cache
+  overwrite: false
+  jpeg_quality: 95
