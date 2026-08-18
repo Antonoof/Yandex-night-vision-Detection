@@ -34,6 +34,7 @@ just call into the merged src/datasets/bdd100k.py instead.
 import csv
 import logging
 import random
+import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -164,11 +165,19 @@ def collect_stats(data_root, split, tod_map=None, workers=16):
     """Walk one split's images/labels and gather EDA statistics.
 
     Reads every label .txt in the split - on ~30k+ images this is a lot of
-    small-file opens, and wall time ends up dominated by I/O wait rather
+    small-file opens, and wall time can end up dominated by I/O wait rather
     than parsing (CPU time well below wall time is the tell). The reads are
-    farmed out to a thread pool since each one blocks on I/O and releases
-    the GIL while waiting, so threads (unlike a plain for-loop) actually
-    overlap that wait instead of paying it one file at a time.
+    farmed out to a thread pool on the theory that each one blocks on I/O
+    and releases the GIL while waiting, so threads ought to overlap that
+    wait instead of paying it one file at a time - confirmed with a large
+    local benchmark (~50x on 8k files), but NOT confirmed to help on
+    Kaggle's mounted /kaggle/input specifically: a real run there showed no
+    improvement, which points at either directory listing or the mount
+    itself serializing I/O regardless of client-side concurrency, neither
+    of which threading here can fix. The per-split log line this emits
+    (listing time vs. read time, separately) is what to check next time to
+    tell those apart - see it before assuming this parameter is doing
+    anything on a given filesystem.
 
     Args:
         data_root (str | Path): folder returned by find_dataset_root.
@@ -190,10 +199,17 @@ def collect_stats(data_root, split, tod_map=None, workers=16):
     labels_dir = data_root / "labels" / split
     tod_map = tod_map or {}
 
+    # Timed separately (not just a single overall %%time in the notebook)
+    # because listing a directory and reading file contents can bottleneck
+    # for completely different reasons on a mounted/network filesystem like
+    # Kaggle's /kaggle/input - threading only speeds up the second one, so
+    # telling them apart matters for knowing whether it even helped.
+    t0 = time.perf_counter()
     images = {
         p.stem: p for p in images_dir.iterdir() if p.suffix.lower() in IMG_EXTS
     }
     labels = {p.stem: p for p in labels_dir.glob("*.txt")}
+    t1 = time.perf_counter()
 
     stats = {
         "n_images": len(images),
@@ -228,6 +244,19 @@ def collect_stats(data_root, split, tod_map=None, workers=16):
             stats["class_counts_by_tod"][tod][cls] += 1
             stats["box_areas_by_tod"][tod].append(w * h)
         stats["boxes"].extend(boxes)
+    t2 = time.perf_counter()
+
+    logger.info(
+        "%-5s: listing %d images + %d labels took %.2fs, reading %d label "
+        "files (workers=%d) took %.2fs",
+        split,
+        len(images),
+        len(labels),
+        t1 - t0,
+        len(stems),
+        workers,
+        t2 - t1,
+    )
 
     return stats
 
