@@ -169,15 +169,18 @@ def collect_stats(data_root, split, tod_map=None, workers=16):
     than parsing (CPU time well below wall time is the tell). The reads are
     farmed out to a thread pool on the theory that each one blocks on I/O
     and releases the GIL while waiting, so threads ought to overlap that
-    wait instead of paying it one file at a time - confirmed with a large
-    local benchmark (~50x on 8k files), but NOT confirmed to help on
-    Kaggle's mounted /kaggle/input specifically: a real run there showed no
-    improvement, which points at either directory listing or the mount
-    itself serializing I/O regardless of client-side concurrency, neither
-    of which threading here can fix. The per-split log line this emits
-    (listing time vs. read time, separately) is what to check next time to
-    tell those apart - see it before assuming this parameter is doing
-    anything on a given filesystem.
+    wait instead of paying it one file at a time - confirmed on a local
+    benchmark (~50x on 8k files, listing+reading well under a second), but
+    confirmed NOT to meaningfully help on Kaggle's mounted /kaggle/input:
+    a real run there, with threading definitely active (workers=16 in the
+    log), still took ~30s total across train/val/test for ~55k label
+    files, in the same ballpark as before threading existed. Read one
+    split's worth (~37k files) alone at ~18s reading time - that mount
+    most likely serializes I/O server-side regardless of how many
+    concurrent requests the client sends, which no amount of client-side
+    threading can fix. Left in anyway: harmless, correctness-neutral (see
+    tests), and may still help on other filesystems this module runs
+    against (plain local disk, other cloud notebook providers).
 
     Args:
         data_root (str | Path): folder returned by find_dataset_root.
@@ -246,7 +249,12 @@ def collect_stats(data_root, split, tod_map=None, workers=16):
         stats["boxes"].extend(boxes)
     t2 = time.perf_counter()
 
-    logger.info(
+    # DEBUG, not INFO: this was diagnostic for a real "collect_stats is slow
+    # on Kaggle" investigation (see the docstring) that already reached its
+    # conclusion - a fresh instance of the same question can flip this back
+    # on (logging.getLogger("src.datasets.nvpdyf_bdd100k").setLevel(logging.DEBUG))
+    # without needing to touch code, but it has no reason to print by default.
+    logger.debug(
         "%-5s: listing %d images + %d labels took %.2fs, reading %d label "
         "files (workers=%d) took %.2fs",
         split,
