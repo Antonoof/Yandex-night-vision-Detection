@@ -4,6 +4,8 @@ import os
 # autologging does not get patched in - this is a requirement of the library.
 USE_COMET = bool(os.environ.get("COMET_API_KEY"))
 if USE_COMET:
+    os.environ["COMET_WORKSPACE"] = str(config.writer.workspace)
+    os.environ["COMET_PROJECT_NAME"] = str(config.writer.project_name)
     import comet_ml  # noqa: F401
 
 import json
