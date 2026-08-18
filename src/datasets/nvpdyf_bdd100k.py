@@ -35,6 +35,7 @@ import csv
 import logging
 import random
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -159,8 +160,15 @@ def parse_label_file(path):
     return boxes, errors
 
 
-def collect_stats(data_root, split, tod_map=None):
+def collect_stats(data_root, split, tod_map=None, workers=16):
     """Walk one split's images/labels and gather EDA statistics.
+
+    Reads every label .txt in the split - on ~30k+ images this is a lot of
+    small-file opens, and wall time ends up dominated by I/O wait rather
+    than parsing (CPU time well below wall time is the tell). The reads are
+    farmed out to a thread pool since each one blocks on I/O and releases
+    the GIL while waiting, so threads (unlike a plain for-loop) actually
+    overlap that wait instead of paying it one file at a time.
 
     Args:
         data_root (str | Path): folder returned by find_dataset_root.
@@ -169,6 +177,9 @@ def collect_stats(data_root, split, tod_map=None):
             from load_timeofday. Optional - without it, everything is
             counted under UNKNOWN_TOD and the day/night breakdown in
             describe_daynight has nothing to show.
+        workers (int): thread pool size for reading label files. Higher
+            than a typical CPU-bound worker count on purpose - this is
+            I/O-bound (mostly waiting on file opens), not compute-bound.
     Returns:
         stats (dict): counts and raw box list for the split - see the keys
             below; consumed by describe_dataset/describe_daynight/
@@ -199,11 +210,14 @@ def collect_stats(data_root, split, tod_map=None):
         "box_areas_by_tod": defaultdict(list),
     }
 
-    for stem in images.keys() & labels.keys():
+    stems = sorted(images.keys() & labels.keys())
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        parsed = pool.map(lambda stem: parse_label_file(labels[stem]), stems)
+
+    for stem, (boxes, errors) in zip(stems, parsed):
         tod = tod_map.get(stem, UNKNOWN_TOD)
         stats["n_images_by_tod"][tod] += 1
 
-        boxes, errors = parse_label_file(labels[stem])
         stats["errors"].extend(errors)
         stats["objects_per_image"].append(len(boxes))
         if not boxes:
