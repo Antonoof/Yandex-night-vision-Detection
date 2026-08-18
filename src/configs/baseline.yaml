@@ -19,6 +19,11 @@ trainer:
   run_name: 01_finetune_yolov8n_head
   override: false # set true to overwrite an existing run_name's outputs
   eval_zero_shot: true # also measure the un-finetuned COCO baseline before training
+  # night/day mAP + prediction figures every K epochs while training (0 = off).
+  # ultralytics' own per-epoch mAP is a single aggregate over the whole val
+  # split; this is what actually shows the night/day gap moving. It costs a
+  # real inference pass (~2 min night + ~9 min day on a T4), hence periodic.
+  eval_every_k_epochs: 3
   # error analysis: ground truth vs. predictions on fixed night/day frames,
   # saved next to the weights and sent to Comet
   num_visualization_samples: 6

@@ -296,41 +296,54 @@ class CometRunLogger:
 
     # -- final evaluation -------------------------------------------------
 
-    def log_eval(self, split, metrics):
-        """Log the final night/day evaluation into this same experiment.
+    def log_eval(self, split, metrics, epoch=None):
+        """Log a night/day evaluation into this same experiment.
 
-        These are single points, not curves: they come from a full extra
-        inference pass over the split, which is far too slow to repeat every
-        epoch. They are stamped with the last training step so they line up
-        with the end of the training curves on a shared x-axis instead of
-        landing at step 0.
+        Each call is one point on the night/day curves. Without ``epoch`` the
+        point is stamped with the last training step, so a final evaluation
+        lines up with the end of the training curves instead of landing at
+        step 0; ``PeriodicNightDayEval`` passes the epoch it measured to build
+        an actual curve.
 
         Args:
             split (str): "night" or "day".
             metrics (dict): output of ``evaluate_detector``.
+            epoch (int | None): epoch to stamp; defaults to the last logged one.
+        """
+        self.log_metrics(
+            {f"{split}/{k}": v for k, v in metrics.items()}, epoch=epoch
+        )
+
+    def log_metrics(self, payload, epoch=None):
+        """Log an arbitrary flat dict of scalars at a given epoch.
+
+        Args:
+            payload (dict): metric name -> value.
+            epoch (int | None): epoch to stamp; defaults to the last logged one.
         """
         if self.exp is None:
             return
+        step = epoch if epoch is not None else self._last_epoch
         try:
-            self.exp.log_metrics(
-                {f"{split}/{k}": v for k, v in metrics.items()},
-                step=self._last_epoch or None,
-                epoch=self._last_epoch or None,
-            )
+            self.exp.log_metrics(_clean(payload), step=step or None, epoch=step or None)
         except Exception as e:
             logger.warning("comet eval logging failed: %s", e)
 
-    def log_image(self, path, name):
+    def log_image(self, path, name, epoch=None):
         """Attach a figure to the experiment.
 
         Args:
             path (str | Path): image file to upload.
             name (str): name shown in the Comet UI's Graphics tab.
+            epoch (int | None): step to stamp; defaults to the last logged one.
+                Figures logged under the same name at different steps become
+                a scrubbable sequence in Comet.
         """
         if self.exp is None:
             return
+        step = epoch if epoch is not None else self._last_epoch
         try:
-            self.exp.log_image(str(path), name=name, step=self._last_epoch or None)
+            self.exp.log_image(str(path), name=name, step=step or None)
             logger.info("comet: изображение '%s' отправлено", name)
         except Exception as e:
             logger.warning("could not log image '%s': %s", name, e)

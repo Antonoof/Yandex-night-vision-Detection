@@ -30,13 +30,15 @@ src/configs/                 every tunable value (see "Configs" below)
   datasets/bdd100k.yaml        where the data is, where to build it
   metrics/detection.yaml       inference thresholds for the mAP sweep
   writer/comet.yaml            Comet project name + dataset version
-  augment/none.yaml            ultralytics augmentation hyperparameters
+  augment/none.yaml            all augmentations off - the clean baseline
+  augment/default.yaml         ultralytics' defaults, as the first notebook ran
 
 src/datasets/bdd100k.py      reads the YOLO-format dataset; CLASSES; COCO80_TO_OURS
 src/model/yolo_model.py      build_model (YOLO wrapper) + log_head_info
 src/model/zero_dce_net.py    Zero-DCE curve-estimation network (enhance_net_nopool)
 src/transforms/zero_dce.py   ZeroDCETransform: low-light enhancement of one frame
 src/metrics/detection.py     COCO mAP via torchmetrics, night/day separately
+src/metrics/periodic_eval.py night/day mAP + figures every K epochs, mid-training
 src/logger/comet_writer.py   Comet: training curves + evaluation runs
 src/logger/logger.py         stdlib logging setup (console + info.log)
 src/logger/logger_config.json  logging handlers/formatters
@@ -89,11 +91,12 @@ python3 train.py augment=none augment.fliplr=0.5     # swap a group, then a key
 | `epochs`, `imgsz`, `batch`, `seed`, `device`, `workers`, `patience` | `baseline.yaml` → `trainer:` |
 | `freeze` (0 = train everything, 10 = freeze the backbone) | `baseline.yaml` → `trainer:` |
 | `run_name`, `save_dir`, `override`, `eval_zero_shot` | `baseline.yaml` → `trainer:` |
+| `eval_every_k_epochs` (night/day mAP + figures during training) | `baseline.yaml` → `trainer:` |
 | starting weights (`yolov8n.pt`) | `model/baseline.yaml` |
 | dataset location, build location, `max_train_images` | `datasets/bdd100k.yaml` |
 | evaluation `conf` / `iou` / `max_det` | `metrics/detection.yaml` |
 | Comet project name, `dataset_version` | `writer/comet.yaml` |
-| augmentation hyperparameters | `augment/none.yaml` |
+| augmentation hyperparameters | `augment/` group: `none.yaml` or `default.yaml` |
 | checkpoint to evaluate, visualization settings | `inference.yaml` → `inferencer:` |
 | **class list, COCO mapping, frame size** | `src/datasets/bdd100k.py` (code, on purpose) |
 | **metric names** | `src/metrics/detection.py` (`RESULT_KEYS`) and `src/logger/comet_writer.py` |
@@ -154,9 +157,10 @@ data/bdd_yolo/
 Frames with no objects still get an (empty) `.txt` — those are background
 images, and they teach the model not to invent objects.
 
-**`test.json` is never read.** It stays untouched until the end of the
-project; it is the only independent check that survives repeated
-experimentation on `val`.
+**The `test` split is never read.** `build_yolo_dataset` only ever writes
+`train` and `val`, so ultralytics cannot see `test` even though it sits in
+the source tree. It stays untouched until the end of the project; it is the
+only independent check that survives repeated experimentation on `val`.
 
 ## Which model, and what "replacing the head" means here
 

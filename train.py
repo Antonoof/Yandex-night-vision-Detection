@@ -16,7 +16,7 @@ from hydra.utils import instantiate
 
 from src.datasets import bdd100k
 from src.logger import CometRunLogger, log_evaluation_run, setup_logging
-from src.metrics import evaluate_detector, print_results
+from src.metrics import PeriodicNightDayEval, evaluate_detector, print_results
 from src.model import log_head_info
 from src.utils.init_utils import resolve_device, set_random_seed
 from src.utils.io_utils import ROOT_PATH
@@ -151,6 +151,21 @@ def main(config):
         model = instantiate(config.model)
         comet_run.attach(model)
 
+        # Night/day mAP while training: ultralytics logs one aggregate mAP per
+        # epoch, which cannot show the gap this project is about. Failures in
+        # here are swallowed - a side metric must not kill a multi-hour run.
+        periodic = PeriodicNightDayEval(
+            night_records,
+            day_records,
+            every_k=config.trainer.eval_every_k_epochs,
+            eval_kwargs=eval_kwargs,
+            comet_run=comet_run,
+            save_dir=save_dir,
+            n_samples=config.trainer.num_visualization_samples,
+            viz_conf=config.trainer.visualization_conf,
+        )
+        periodic.attach(model)
+
         results = model.train(
             data=str(data_yaml),
             epochs=config.trainer.epochs,
@@ -234,6 +249,7 @@ def main(config):
             "val_day": len(day_records),
         },
         "metrics": metrics,
+        "per_epoch_night_day": periodic.history,
     }
     results_path = Path(weights_save_dir) / "results.json"
     results_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
