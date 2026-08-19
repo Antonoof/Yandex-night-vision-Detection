@@ -21,7 +21,7 @@ In the notebook's right-hand panel:
 ## 1. Get the code
 
 ```python
-!git clone -b yolo-baseline-scripts \
+!git clone -b master \
     https://github.com/Antonoof/Yandex-night-vision-Detection.git repo
 %cd repo
 ```
@@ -35,7 +35,7 @@ Secrets as `GITHUB_TOKEN` and clone with it:
 ```python
 from kaggle_secrets import UserSecretsClient
 token = UserSecretsClient().get_secret("GITHUB_TOKEN")
-!git clone -b yolo-baseline-scripts \
+!git clone -b master \
     https://{token}@github.com/Antonoof/Yandex-night-vision-Detection.git repo
 %cd repo
 ```
@@ -118,7 +118,7 @@ and metrics from different class orders are not comparable.
 !python3 train.py \
     datasets.input_dir=/kaggle/input \
     trainer.device=0 \
-    trainer.run_name=01_baseline_yolov8n_night
+    trainer.run_name=03_aug-default_yolov8n_nvpdyf
 ```
 
 Roughly 2295 iterations per epoch on the full train split; 25 epochs is
@@ -138,7 +138,7 @@ Kaggle only keeps if it is in the notebook's output. Copy what matters to
 `/kaggle/working` so it is saved with the version:
 
 ```python
-!cp -r saved/runs/01_baseline_yolov8n_night /kaggle/working/
+!cp -r saved/runs/03_aug-default_yolov8n_nvpdyf /kaggle/working/
 ```
 
 Weights are `weights/best.pt`; the metrics are in `results.json` and
@@ -150,7 +150,7 @@ To evaluate that checkpoint later without retraining:
 !python3 inference.py \
     datasets.input_dir=/kaggle/input \
     inferencer.device=0 \
-    inferencer.weights=saved/runs/01_baseline_yolov8n_night/weights/best.pt
+    inferencer.weights=saved/runs/03_aug-default_yolov8n_nvpdyf/weights/best.pt
 ```
 
 ## Gotchas
