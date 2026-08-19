@@ -19,6 +19,7 @@ being comparable.
 ```
 train.py                     entry point: build dataset -> fine-tune -> evaluate
 inference.py                 entry point: evaluate an existing checkpoint
+analyze_contrast.py          entry point: object/background contrast, night vs day
 requirements.txt             dependencies (torch deliberately unpinned, see README)
 .python-version              3.11
 .pre-commit-config.yaml      black, isort, whitespace/YAML hooks
@@ -26,6 +27,7 @@ requirements.txt             dependencies (torch deliberately unpinned, see READ
 src/configs/                 every tunable value (see "Configs" below)
   baseline.yaml                train.py's root config
   inference.yaml               inference.py's root config
+  analysis.yaml                analyze_contrast.py's root config
   model/baseline.yaml          which weights to start from
   datasets/bdd100k.yaml        where the data is, where to build it
   metrics/detection.yaml       inference thresholds for the mAP sweep
@@ -43,6 +45,8 @@ src/transforms/zero_dce.py   ZeroDCETransform: low-light enhancement of one fram
 src/transforms/identity.py   IdentityTransform: the control (re-encode only)
 src/metrics/detection.py     COCO mAP via torchmetrics, night/day separately
 src/metrics/periodic_eval.py night/day mAP + figures every K epochs, mid-training
+src/analysis/contrast.py     per-box Weber contrast, dynamic range, IoU matching
+src/analysis/report.py       summary tables + figures for the contrast study
 src/logger/comet_writer.py   Comet: training curves + evaluation runs
 src/logger/logger.py         stdlib logging setup (console + info.log)
 src/logger/logger_config.json  logging handlers/formatters

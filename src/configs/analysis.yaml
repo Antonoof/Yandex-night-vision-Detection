@@ -1,0 +1,25 @@
+defaults:
+  - datasets: bdd100k
+  - metrics: detection
+  - _self_
+
+analysis:
+  split: val # never "test"
+  # Background ring width, as a fraction of the box's own size. The ring
+  # excludes every other labelled box, so this measures contrast against the
+  # scene, not against neighbouring cars.
+  ring_frac: 0.5
+  # Checkpoint used to answer "was this object actually found". null = skip
+  # the recall part and only measure the contrast distributions - that half
+  # needs no model, no ultralytics and no GPU at all.
+  weights: null
+  imgsz: 640
+  # A human-scale threshold on purpose: this asks "does the detector find it",
+  # not "what is the mAP". metrics/detection.yaml's 0.001 would count every
+  # low-confidence guess as a hit.
+  conf: 0.25
+  iou: 0.5 # IoU above which a ground-truth box counts as found
+  batch: 16
+  device: cpu # inference here is light; "0" if a GPU happens to be free
+  max_frames: null # cap for a quick dry run
+  save_path: saved/analysis/contrast
