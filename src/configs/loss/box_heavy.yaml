@@ -1,0 +1,13 @@
+# Localization-weighted variant. Measured on the val split, the night gap is
+# a *localization* gap, not a detection one: objects are found nearly as
+# often at night (recall differs by 0.02-0.08 at equal size) but framed worse
+# - median IoU 0.763 vs 0.812, and night's relative lag grows from 6.8% at
+# IoU>=0.5 to 47% at IoU>=0.95.
+#
+# If box precision is the bottleneck, weighting its penalty up should move the
+# metric. Only `box` changes, so the comparison against loss=default stays
+# one-dimensional; `dfl` is left alone deliberately, even though it also
+# shapes the edges - test one axis at a time.
+box: 10.0
+cls: 0.5
+dfl: 1.5

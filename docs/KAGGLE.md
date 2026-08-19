@@ -21,7 +21,7 @@ In the notebook's right-hand panel:
 ## 1. Get the code
 
 ```python
-!git clone -b yolo-baseline-scripts \
+!git clone -b master \
     https://github.com/Antonoof/Yandex-night-vision-Detection.git repo
 %cd repo
 ```
@@ -35,7 +35,7 @@ Secrets as `GITHUB_TOKEN` and clone with it:
 ```python
 from kaggle_secrets import UserSecretsClient
 token = UserSecretsClient().get_secret("GITHUB_TOKEN")
-!git clone -b yolo-baseline-scripts \
+!git clone -b master \
     https://{token}@github.com/Antonoof/Yandex-night-vision-Detection.git repo
 %cd repo
 ```
@@ -118,7 +118,7 @@ and metrics from different class orders are not comparable.
 !python3 train.py \
     datasets.input_dir=/kaggle/input \
     trainer.device=0 \
-    trainer.run_name=01_baseline_yolov8n_night
+    trainer.run_name=03_aug-default_yolov8n_nvpdyf
 ```
 
 Roughly 2295 iterations per epoch on the full train split; 25 epochs is
@@ -138,7 +138,7 @@ Kaggle only keeps if it is in the notebook's output. Copy what matters to
 `/kaggle/working` so it is saved with the version:
 
 ```python
-!cp -r saved/runs/01_baseline_yolov8n_night /kaggle/working/
+!cp -r saved/runs/03_aug-default_yolov8n_nvpdyf /kaggle/working/
 ```
 
 Weights are `weights/best.pt`; the metrics are in `results.json` and
@@ -150,7 +150,7 @@ To evaluate that checkpoint later without retraining:
 !python3 inference.py \
     datasets.input_dir=/kaggle/input \
     inferencer.device=0 \
-    inferencer.weights=saved/runs/01_baseline_yolov8n_night/weights/best.pt
+    inferencer.weights=saved/runs/03_aug-default_yolov8n_nvpdyf/weights/best.pt
 ```
 
 ## Gotchas
@@ -164,3 +164,48 @@ To evaluate that checkpoint later without retraining:
 | `ValueError: ... already has a finished run` | `trainer.run_name` was reused; rename it or pass `trainer.override=true` |
 | directory changes don't stick between cells | `!cd` instead of `%cd` |
 | `pip install hydra` fails to build | the package is `hydra-core` |
+
+## Analysis runs (no GPU needed)
+
+`analyze_contrast.py` measures object/background contrast and box precision on
+the val split. It needs no accelerator — pick **None** in the notebook's
+settings, so it does not eat the GPU quota.
+
+```python
+!python3 analyze_contrast.py \
+    datasets.input_dir=/kaggle/input \
+    analysis.weights=/kaggle/input/<weights-dataset>/best.pt \
+    analysis.device=cpu
+```
+
+Roughly 5 minutes for the contrast pass plus ~35 for matching predictions on
+CPU. Without `analysis.weights` it skips the matching half entirely and needs
+neither torch nor ultralytics.
+
+Outputs land in `saved/analysis/contrast/`: `boxes.csv` (one row per labelled
+box), `contrast.png`, `localization.png`, and `boxes_night.png` /
+`boxes_day.png` — the crops with ground truth and prediction drawn together.
+
+### The notebook
+
+`notebooks/02_night_gap_analysis.ipynb` turns that table into the figures for
+a talk. **File → Import Notebook → Upload** it (a GitHub link will not work
+for a private repo), attach the dataset, and uncomment the `git clone` line in
+its first cell — the notebook is a thin viewer and imports everything from
+`src/analysis/`.
+
+## Weights do not survive the session
+
+`/kaggle/working` is wiped unless you **Save Version**, and `saved/` is
+gitignored, so a finished run's `best.pt` is gone the moment the session ends.
+Before saving a version, drop the built dataset — it is several GB and can be
+rebuilt in minutes:
+
+```python
+!rm -rf /kaggle/working/repo/data
+!du -sh /kaggle/working/repo/saved
+```
+
+For weights you will want again (evaluation, warm starts, the analysis script),
+publish them as their own Kaggle Dataset instead of relying on notebook
+versions.

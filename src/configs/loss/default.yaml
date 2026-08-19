@@ -1,0 +1,11 @@
+# ultralytics' own loss weights. Kept as an explicit group so "the defaults"
+# means a fixed set of numbers rather than whatever this version ships today.
+#
+# box - CIoU term: how well the box overlaps the ground truth.
+# cls - BCE over classes: what the object is.
+# dfl - Distribution Focal Loss: the per-coordinate distribution whose mean
+#       becomes the box edge. Together with box, this is what controls how
+#       precisely an edge is placed.
+box: 7.5
+cls: 0.5
+dfl: 1.5
