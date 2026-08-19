@@ -164,3 +164,48 @@ To evaluate that checkpoint later without retraining:
 | `ValueError: ... already has a finished run` | `trainer.run_name` was reused; rename it or pass `trainer.override=true` |
 | directory changes don't stick between cells | `!cd` instead of `%cd` |
 | `pip install hydra` fails to build | the package is `hydra-core` |
+
+## Analysis runs (no GPU needed)
+
+`analyze_contrast.py` measures object/background contrast and box precision on
+the val split. It needs no accelerator — pick **None** in the notebook's
+settings, so it does not eat the GPU quota.
+
+```python
+!python3 analyze_contrast.py \
+    datasets.input_dir=/kaggle/input \
+    analysis.weights=/kaggle/input/<weights-dataset>/best.pt \
+    analysis.device=cpu
+```
+
+Roughly 5 minutes for the contrast pass plus ~35 for matching predictions on
+CPU. Without `analysis.weights` it skips the matching half entirely and needs
+neither torch nor ultralytics.
+
+Outputs land in `saved/analysis/contrast/`: `boxes.csv` (one row per labelled
+box), `contrast.png`, `localization.png`, and `boxes_night.png` /
+`boxes_day.png` — the crops with ground truth and prediction drawn together.
+
+### The notebook
+
+`notebooks/02_night_gap_analysis.ipynb` turns that table into the figures for
+a talk. **File → Import Notebook → Upload** it (a GitHub link will not work
+for a private repo), attach the dataset, and uncomment the `git clone` line in
+its first cell — the notebook is a thin viewer and imports everything from
+`src/analysis/`.
+
+## Weights do not survive the session
+
+`/kaggle/working` is wiped unless you **Save Version**, and `saved/` is
+gitignored, so a finished run's `best.pt` is gone the moment the session ends.
+Before saving a version, drop the built dataset — it is several GB and can be
+rebuilt in minutes:
+
+```python
+!rm -rf /kaggle/working/repo/data
+!du -sh /kaggle/working/repo/saved
+```
+
+For weights you will want again (evaluation, warm starts, the analysis script),
+publish them as their own Kaggle Dataset instead of relying on notebook
+versions.

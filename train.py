@@ -175,6 +175,7 @@ def main(config):
             "n_train": len(train_used),
             "n_val_night": len(night_records),
             "n_val_day": len(day_records),
+            **{f"loss.{k}": v for k, v in config.loss.items()},
             **{f"augment.{k}": v for k, v in config.augment.items()},
         },
         project_name=config.writer.project_name,
@@ -215,6 +216,7 @@ def main(config):
             patience=config.trainer.patience,
             workers=config.trainer.workers,
             verbose=True,
+            **config.loss,
             **config.augment,
         )
 
