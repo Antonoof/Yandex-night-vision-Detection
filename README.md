@@ -35,7 +35,9 @@ pre-commit install
 
 See **[docs/KAGGLE.md](docs/KAGGLE.md)** for the full runbook (notebook
 settings, cloning, the smoke test, getting results out, and the usual
-failure modes). The short version:
+failure modes), or **[docs/DATASPHERE.md](docs/DATASPHERE.md)** for the same
+on Yandex DataSphere Jobs, which is where runs go when the Kaggle quota is
+out. The short version:
 
 ```python
 !git clone -b nvpdyf-dataset-loader <this-repo-url> repo
@@ -172,6 +174,8 @@ docs/PROJECT_STRUCTURE.md   what every file does, where each constant lives
 docs/EXPERIMENTS.md         run naming, tags and the metric contract
 docs/ADAPTIVE_TRAINING.md   adaptive loss, transforms, resolution and ablations
 docs/KAGGLE.md              step-by-step runbook for Kaggle GPU
+docs/DATASPHERE.md          step-by-step runbook for Yandex DataSphere Jobs
+jobs/                       DataSphere job configs + the VM entry point
 notebooks/                  thin viewers over src/ - no logic of their own
 ```
 
