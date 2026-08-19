@@ -26,18 +26,31 @@ PRED_COLOR = "#e74c3c"
 
 
 def pick_examples(
-    rows, timeofday="night", iou_range=(0.4, 0.8), min_area=2000, n=8, seed=42
+    rows,
+    timeofday="night",
+    iou_range=(0.4, 0.8),
+    min_area=2000,
+    n=8,
+    seed=42,
+    require_matched=True,
 ):
-    """Choose comparable examples: matched objects in a given IoU band.
+    """Choose comparable examples: objects in a given IoU band.
 
     Only reasonably large objects are eligible - on a 20x20 box the drawn
     line width itself would hide the effect being shown.
+
+    ``require_matched`` keeps only boxes counted as found, i.e. IoU >= the
+    matching threshold (0.5 by default), which silently raises the floor of
+    ``iou_range``. Pass False to reach the badly-placed boxes below it: the
+    prediction and its IoU are recorded there too, and those are the cases
+    where it is visible at all whether the model or the label is wrong.
     """
     pool = [
         r
         for r in rows
         if r["timeofday"] == timeofday
-        and r["matched"]
+        and (r["matched"] if require_matched else True)
+        and r.get("best_iou") is not None
         and iou_range[0] <= r["best_iou"] <= iou_range[1]
         and r["area_px"] >= min_area
         and r.get("pred_x1") is not None
@@ -119,8 +132,21 @@ def draw_localization_grid(
                     facecolor="none",
                 )
             )
+        # Name the worst edge in pixels. Two boxes with the same IoU can be
+        # wrong in opposite ways, and the eye is bad at telling which edge
+        # moved - saying it out loud is what makes a crop answerable: is the
+        # prediction wrong here, or is the ground truth?
+        edges = {
+            "лево": gt[0] - pr[0],
+            "право": pr[2] - gt[2],
+            "верх": gt[1] - pr[1],
+            "низ": pr[3] - gt[3],
+        }
+        worst, delta = max(edges.items(), key=lambda kv: abs(kv[1]))
         ax.set_title(
-            f"{row['class_name']}  IoU={row['best_iou']:.2f}", fontsize=10
+            f"{row['class_name']}  IoU={row['best_iou']:.2f}  "
+            f"{worst} {delta:+d}px",
+            fontsize=10,
         )
         ax.axis("off")
 

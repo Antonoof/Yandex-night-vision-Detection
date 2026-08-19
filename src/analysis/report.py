@@ -289,6 +289,229 @@ def localization_summary(rows):
             logger.info("%-8s %9.3f %9.3f %+9.3f", bucket, mn, md, mn - md)
 
 
+# Signed edge errors are all oriented the same way on purpose: positive means
+# the prediction sticks out past the ground truth. Mixing conventions between
+# edges would make "the box is inflated" read as zero on average.
+EDGE_LABELS = {"left": "лево", "right": "право", "top": "верх", "bottom": "низ"}
+
+
+def box_errors(rows):
+    """Decompose each matched box into placement error and size error.
+
+    IoU says a box is wrong but not *how*. Everything here is normalised by
+    the ground-truth size, so a 10-pixel slip on a bus and on a traffic light
+    are the same number - otherwise the statistic just re-measures which
+    objects happen to be big.
+
+    Args:
+        rows (list[dict]): rows from boxes.csv, matched or not; unmatched
+            rows and rows without prediction coordinates are dropped.
+    Returns:
+        dict[str, np.ndarray]: ``dx``/``dy`` centre offset, ``sw``/``sh``
+        size ratio, ``left``/``right``/``top``/``bottom`` edge errors, plus
+        the ``rows`` that survived, in the same order.
+    """
+    kept = [
+        r
+        for r in rows
+        if r.get("matched") and r.get("pred_x1") is not None
+    ]
+    if not kept:
+        return {"rows": []}
+
+    gt = np.array(
+        [[r["gt_x1"], r["gt_y1"], r["gt_x2"], r["gt_y2"]] for r in kept], dtype=float
+    )
+    pr = np.array(
+        [[r["pred_x1"], r["pred_y1"], r["pred_x2"], r["pred_y2"]] for r in kept],
+        dtype=float,
+    )
+    gw, gh = gt[:, 2] - gt[:, 0], gt[:, 3] - gt[:, 1]
+    pw, ph = pr[:, 2] - pr[:, 0], pr[:, 3] - pr[:, 1]
+    return {
+        "rows": kept,
+        "dx": ((pr[:, 0] + pr[:, 2]) - (gt[:, 0] + gt[:, 2])) / (2 * gw),
+        "dy": ((pr[:, 1] + pr[:, 3]) - (gt[:, 1] + gt[:, 3])) / (2 * gh),
+        "sw": pw / gw,
+        "sh": ph / gh,
+        "left": (gt[:, 0] - pr[:, 0]) / gw,
+        "right": (pr[:, 2] - gt[:, 2]) / gw,
+        "top": (gt[:, 1] - pr[:, 1]) / gh,
+        "bottom": (pr[:, 3] - gt[:, 3]) / gh,
+    }
+
+
+def _iqr(values):
+    """Spread that a handful of wild misses cannot inflate."""
+    values = np.asarray(values, dtype=float)
+    if len(values) < 4:
+        return float("nan")
+    q75, q25 = np.percentile(values, [75, 25])
+    return float(q75 - q25)
+
+
+def _split_errors(rows):
+    """Per-time-of-day error dicts, night first."""
+    return {
+        label: box_errors([r for r in rows if r["timeofday"] == tod])
+        for tod, label in ((NIGHT, "ночь"), (DAY, "день"))
+    }
+
+
+def _spread_row(errors, key, min_n=150):
+    """IQR of one error component, night vs day, or None if too few boxes."""
+    night, day = errors["ночь"], errors["день"]
+    if len(night["rows"]) < min_n or len(day["rows"]) < min_n:
+        return None
+    a, b = _iqr(night[key]), _iqr(day[key])
+    return a, b, (100 * (a / b - 1) if b else float("nan"))
+
+
+def localization_decomposition(rows, min_n=150):
+    """Is the night box *displaced*, or merely *unsteady*?
+
+    A systematic component would show up in the medians - the model bleeding
+    boxes out into headlight glow, say, would inflate them at night. A random
+    component shows up in the spread only. The two call for different fixes,
+    and the medians vs IQR contrast below is what separates them.
+    """
+    errors = _split_errors(rows)
+    if not errors["ночь"]["rows"] or not errors["день"]["rows"]:
+        logger.info("нет сопоставленных боксов — раскладывать нечего")
+        return
+
+    logger.info("")
+    logger.info("РАЗЛОЖЕНИЕ ОШИБКИ ЛОКАЛИЗАЦИИ (доли размера объекта)")
+    logger.info("%-26s %9s %9s %9s", "", "ночь", "день", "ночь/день")
+    for key, title in (
+        ("dx", "смещение центра, x"),
+        ("dy", "смещение центра, y"),
+        ("sw", "отношение ширин"),
+        ("sh", "отношение высот"),
+    ):
+        med_n = float(np.median(errors["ночь"][key]))
+        med_d = float(np.median(errors["день"][key]))
+        logger.info("%-26s %9.4f %9.4f", f"медиана {title}", med_n, med_d)
+    logger.info("")
+    for key, title in (
+        ("dx", "смещение центра, x"),
+        ("dy", "смещение центра, y"),
+        ("sw", "отношение ширин"),
+        ("sh", "отношение высот"),
+    ):
+        spread = _spread_row(errors, key, min_n)
+        if spread:
+            logger.info("%-26s %9.4f %9.4f %+8.0f%%", f"разброс {title}", *spread)
+
+    logger.info("")
+    logger.info("разброс по рёбрам (IQR, + = предсказание выходит наружу):")
+    logger.info("%-26s %9s %9s %9s", "ребро", "ночь", "день", "ночь/день")
+    for key, label in EDGE_LABELS.items():
+        spread = _spread_row(errors, key, min_n)
+        if spread:
+            logger.info("%-26s %9.4f %9.4f %+8.0f%%", label, *spread)
+
+    for field, title in (("size_bucket", "размеру"), ("class_name", "классу")):
+        logger.info("")
+        logger.info("разброс смещения по %s (IQR dx / IQR dy):", title)
+        logger.info("%-16s %7s %7s %17s %17s", "срез", "n ноч", "n день", "dx", "dy")
+        for value in sorted({r[field] for r in rows if r.get("matched")}):
+            subset = [r for r in rows if r[field] == value]
+            sub_errors = _split_errors(subset)
+            dx = _spread_row(sub_errors, "dx", min_n)
+            dy = _spread_row(sub_errors, "dy", min_n)
+            if not (dx and dy):
+                continue
+            logger.info(
+                "%-16s %7d %7d %17s %17s",
+                value,
+                len(sub_errors["ночь"]["rows"]),
+                len(sub_errors["день"]["rows"]),
+                f"{dx[0]:.4f}/{dx[1]:.4f} {dx[2]:+.0f}%",
+                f"{dy[0]:.4f}/{dy[1]:.4f} {dy[2]:+.0f}%",
+            )
+
+
+def largest_common_slice(rows, min_n=150):
+    """The (class, size) cell with the most night boxes, present in both.
+
+    Controlling for class and size at once costs sample size, so the control
+    is run inside one cell rather than across all of them. Picking the cell by
+    night count rather than naming it keeps the code honest if the dataset
+    changes under it.
+    """
+    best, best_n = None, 0
+    matched = [r for r in rows if r.get("matched")]
+    for key in {(r["class_name"], r["size_bucket"]) for r in matched}:
+        cell = [
+            r for r in matched
+            if (r["class_name"], r["size_bucket"]) == key
+        ]
+        n_night = sum(r["timeofday"] == NIGHT for r in cell)
+        n_day = len(cell) - n_night
+        if n_night > best_n and n_night >= min_n and n_day >= min_n:
+            best, best_n = key, n_night
+    return best
+
+
+def spread_by_contrast(rows, key="dy", edges=(0.0, 0.1, 0.2, 0.35, 0.6, 1.0), min_n=150):
+    """Error spread against |Weber contrast|, inside one class/size cell.
+
+    The last confound standing: night boxes could be shakier simply because
+    night objects sit at different contrasts. Holding class, size *and*
+    contrast fixed answers whether anything is left over - and something is.
+
+    Returns:
+        tuple: ``(slice_key, centres, iqr_night, iqr_day, counts_night)``, or
+        ``(None, ...)`` when no cell is populated enough.
+    """
+    cell_key = largest_common_slice(rows, min_n)
+    if cell_key is None:
+        return None, [], [], [], []
+    cell = [
+        r for r in rows
+        if r.get("matched") and (r["class_name"], r["size_bucket"]) == cell_key
+    ]
+    centres, night_iqr, day_iqr, counts = [], [], [], []
+    for lo, hi in zip(edges, edges[1:]):
+        band = [r for r in cell if lo <= abs(r["weber"]) < hi]
+        errors = _split_errors(band)
+        spread = _spread_row(errors, key, min_n)
+        if not spread:
+            continue
+        centres.append((lo + hi) / 2)
+        night_iqr.append(spread[0])
+        day_iqr.append(spread[1])
+        counts.append(len(errors["ночь"]["rows"]))
+    return cell_key, centres, night_iqr, day_iqr, counts
+
+
+def contrast_control_summary(rows, key="dy", min_n=150):
+    """Log the contrast-controlled comparison produced by spread_by_contrast."""
+    cell_key, centres, night_iqr, day_iqr, counts = spread_by_contrast(
+        rows, key=key, min_n=min_n
+    )
+    if cell_key is None:
+        logger.info("контроль по контрасту: ни одна клетка класс×размер не набрала боксов")
+        return
+    logger.info("")
+    logger.info(
+        "КОНТРОЛЬ ПО КОНТРАСТУ: разброс '%s' внутри среза %s/%s",
+        key,
+        *cell_key,
+    )
+    logger.info("%-12s %7s %9s %9s %9s", "|weber|", "n ноч", "ночь", "день", "ночь/день")
+    for c, n_, d_, cnt in zip(centres, night_iqr, day_iqr, counts):
+        logger.info(
+            "%-12s %7d %9.4f %9.4f %+8.0f%%",
+            f"~{c:.2f}",
+            cnt,
+            n_,
+            d_,
+            100 * (n_ / d_ - 1) if d_ else float("nan"),
+        )
+
+
 def recall_vs_iou_threshold(rows, thresholds=None):
     """Recall as a function of the IoU threshold, night vs day.
 
@@ -393,6 +616,125 @@ def plot_localization(rows, out_path):
         ax.set_xlabel("порог IoU")
         ax.set_ylabel("(день − ночь) / день, %")
         ax.grid(alpha=0.3)
+
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+    logger.info("график: %s", out_path)
+    return out_path
+
+
+def plot_decomposition(rows, out_path):
+    """Four panels separating a displaced box from an unsteady one."""
+    errors = _split_errors(rows)
+    if not errors["ночь"]["rows"] or not errors["день"]["rows"]:
+        logger.info("нечего рисовать: нет сопоставленных боксов")
+        return None
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(
+        "Ночная рамка не смещена — она дрожит", fontsize=15
+    )
+
+    # Panel 1: the distributions themselves. Same centre, wider night curve -
+    # everything else on this figure is a way of measuring that picture.
+    ax = axes[0, 0]
+    shoulders = []
+    for label, colour in (("день", DAY_COLOR), ("ночь", NIGHT_COLOR)):
+        heights, edges_, _ = ax.hist(
+            errors[label]["dy"],
+            bins=80,
+            range=(-0.3, 0.3),
+            density=True,
+            histtype="step",
+            lw=2,
+            label=f"{label} (медиана {np.median(errors[label]['dy']):+.3f})",
+            color=colour,
+        )
+        # Box coordinates are integers, so a large share of predictions land
+        # exactly on the ground truth and pile into the central bin. Left in,
+        # that single spike is three times the height of everything else and
+        # flattens the very comparison this panel exists to show.
+        shoulders.append(heights[np.abs(edges_[:-1] + 0.5 * np.diff(edges_)) > 0.01].max())
+    ax.set_ylim(0, 1.25 * max(shoulders))
+    ax.axvline(0, color="black", lw=0.8)
+    ax.set_title("Смещение центра по вертикали\nв долях высоты объекта")
+    ax.set_xlabel("(центр предсказания − центр разметки) / высота")
+    ax.legend()
+
+    # Panel 2: spread by size. The relative night penalty grows with the
+    # object, which is the opposite of where the small-object work went.
+    ax = axes[0, 1]
+    buckets = [
+        b for b in ("small", "medium", "large")
+        if _spread_row(_split_errors([r for r in rows if r["size_bucket"] == b]), "dy")
+    ]
+    width = 0.38
+    for offset, label, colour in (
+        (-width / 2, "ночь", NIGHT_COLOR),
+        (width / 2, "день", DAY_COLOR),
+    ):
+        vals = [
+            _spread_row(
+                _split_errors([r for r in rows if r["size_bucket"] == b]), "dy"
+            )[0 if label == "ночь" else 1]
+            for b in buckets
+        ]
+        ax.bar(np.arange(len(buckets)) + offset, vals, width, label=label, color=colour)
+    for i, b in enumerate(buckets):
+        spread = _spread_row(_split_errors([r for r in rows if r["size_bucket"] == b]), "dy")
+        ax.text(i, max(spread[:2]) * 1.03, f"{spread[2]:+.0f}%", ha="center", fontsize=9)
+    ax.set_xticks(np.arange(len(buckets)), buckets)
+    ax.set_title("Разброс смещения (IQR) по размеру объекта")
+    ax.set_ylabel("IQR смещения по вертикали")
+    ax.legend()
+
+    # Panel 3: which edge. Top and bottom degrade harder than left and right -
+    # at night an object is outlined by its own lights, which mark its sides.
+    ax = axes[1, 0]
+    keys = [k for k in EDGE_LABELS if _spread_row(errors, k)]
+    for offset, label, colour in (
+        (-width / 2, "ночь", NIGHT_COLOR),
+        (width / 2, "день", DAY_COLOR),
+    ):
+        idx = 0 if label == "ночь" else 1
+        ax.bar(
+            np.arange(len(keys)) + offset,
+            [_spread_row(errors, k)[idx] for k in keys],
+            width,
+            label=label,
+            color=colour,
+        )
+    for i, k in enumerate(keys):
+        ax.text(
+            i, max(_spread_row(errors, k)[:2]) * 1.03,
+            f"{_spread_row(errors, k)[2]:+.0f}%", ha="center", fontsize=9,
+        )
+    ax.set_xticks(np.arange(len(keys)), [EDGE_LABELS[k] for k in keys])
+    ax.set_ylim(0, max(_spread_row(errors, k)[0] for k in keys) * 1.18)
+    ax.set_title("Разброс по рёбрам (IQR)")
+    # Lower left: the percentage labels sit above the tallest bars, and the
+    # default "best" placement puts the legend straight on top of them.
+    ax.legend(loc="lower left")
+
+    # Panel 4: the control. Same class, same size, same contrast - and the
+    # night spread is still the higher curve.
+    ax = axes[1, 1]
+    cell_key, centres, night_iqr, day_iqr, _ = spread_by_contrast(rows)
+    if cell_key:
+        ax.plot(centres, night_iqr, marker="o", color=NIGHT_COLOR, label="ночь")
+        ax.plot(centres, day_iqr, marker="o", color=DAY_COLOR, label="день")
+        ax.set_ylim(bottom=0)
+        ax.set_title(
+            f"Контроль: {cell_key[0]}/{cell_key[1]}, при равном контрасте\n"
+            "ночь всё равно выше"
+        )
+        ax.set_xlabel("|контраст Вебера|")
+        ax.set_ylabel("IQR смещения по вертикали")
+        ax.legend()
+        ax.grid(alpha=0.3)
+    else:
+        ax.axis("off")
 
     plt.tight_layout()
     fig.savefig(out_path, dpi=120)

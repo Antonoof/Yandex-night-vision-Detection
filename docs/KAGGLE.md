@@ -183,8 +183,14 @@ CPU. Without `analysis.weights` it skips the matching half entirely and needs
 neither torch nor ultralytics.
 
 Outputs land in `saved/analysis/contrast/`: `boxes.csv` (one row per labelled
-box), `contrast.png`, `localization.png`, and `boxes_night.png` /
-`boxes_day.png` — the crops with ground truth and prediction drawn together.
+box), `contrast.png`, `localization.png`, `decomposition.png`, and
+`boxes_night.png` / `boxes_day.png` — the crops with ground truth and
+prediction drawn together.
+
+`localization.png` asks *which* boxes are wrong; `decomposition.png` asks
+*how*. The second splits each box's error into placement and size, and
+separates a systematic shift from plain unsteadiness — which is what tells a
+fix apart from a workaround.
 
 ### The notebook
 

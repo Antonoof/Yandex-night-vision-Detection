@@ -15,9 +15,12 @@ import hydra
 
 from src.analysis import (
     collect,
+    contrast_control_summary,
     draw_localization_grid,
+    localization_decomposition,
     localization_summary,
     match_predictions,
+    plot_decomposition,
     plot_localization,
     plot_overview,
     recall_by_contrast,
@@ -102,6 +105,12 @@ def main(config):
         # The localization half only exists once boxes have been matched.
         localization_summary(rows)
         plot_localization(rows, save_path / "localization.png")
+        # "Which boxes are wrong" (above) and "how they are wrong" (below).
+        # The second question is what tells a fix apart from a workaround:
+        # a displaced box and an unsteady one need different treatment.
+        localization_decomposition(rows)
+        contrast_control_summary(rows)
+        plot_decomposition(rows, save_path / "decomposition.png")
         images_dir = data_root / "images" / config.analysis.split
         for tod, suffix in (("night", "night"), ("daytime", "day")):
             draw_localization_grid(
