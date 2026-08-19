@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 def main(config):
     """
     Main script for inference. Loads a trained checkpoint and evaluates it
-    on the BDD100K validation split, separately for night and day frames.
+    on one BDD100K split, separately for night and day frames.
 
     Args:
         config (DictConfig): hydra experiment config.
@@ -33,15 +33,26 @@ def main(config):
 
     device = resolve_device(config.inferencer.device)
 
+    split = config.inferencer.split
     data_root = bdd100k.find_dataset_root(ROOT_PATH / config.datasets.input_dir)
-    val_records = bdd100k.load_records(data_root, "val")
-    night_records = [r for r in val_records if r["timeofday"] == "night"]
-    day_records = [r for r in val_records if r["timeofday"] == "daytime"]
+    records = bdd100k.load_records(data_root, split)
+    night_records = [r for r in records if r["timeofday"] == "night"]
+    day_records = [r for r in records if r["timeofday"] == "daytime"]
     logger.info(
-        "val split: night=%d frames, day=%d frames",
+        "%s split: night=%d frames, day=%d frames",
+        split,
         len(night_records),
         len(day_records),
     )
+    if split == "test":
+        # Held out for the whole project, so every number measured on it is a
+        # one-shot claim. Say so in the log: a reader six months from now needs
+        # to know which rows may have been tuned against and which may not.
+        logger.info(
+            "ВНИМАНИЕ: это test. На нём ничего не подбиралось; "
+            "test намеренно обогащён ночью (42.8%% против 20.2%% в val), "
+            "поэтому его числа не сравнимы с val напрямую."
+        )
 
     model = instantiate(config.model, weights=config.inferencer.weights)
 
@@ -56,7 +67,9 @@ def main(config):
     night_metrics = evaluate_detector(model, night_records, desc="night", **eval_kwargs)
     day_metrics = evaluate_detector(model, day_records, desc="day", **eval_kwargs)
     print_results(
-        f"Evaluation: {config.inferencer.weights}", night_metrics, day_metrics
+        f"Evaluation [{split}]: {config.inferencer.weights}",
+        night_metrics,
+        day_metrics,
     )
 
     results_path = save_path / "results.json"
@@ -64,6 +77,7 @@ def main(config):
         json.dumps(
             {
                 "weights": config.inferencer.weights,
+                "split": split,
                 "night": night_metrics,
                 "day": day_metrics,
             },

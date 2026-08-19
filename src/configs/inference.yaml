@@ -5,6 +5,10 @@ defaults:
   - _self_
 
 inferencer:
+  # "val" while iterating; "test" only for the final, reported numbers. Unlike
+  # analyze_contrast.py this script does allow "test" - evaluating a finished
+  # checkpoint is what the split is for. Every run against it is on the record.
+  split: val
   weights: saved/runs/01_finetune_yolov8n_head/weights/best.pt
   imgsz: 640
   batch: 16
