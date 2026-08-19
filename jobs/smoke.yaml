@@ -1,0 +1,44 @@
+# Smoke test: 1 epoch on 200 frames, at the real imgsz/batch. ~15 minutes.
+#   datasphere project job execute -p <project-id> -c jobs/smoke.yaml
+#
+# Everything you normally edit is in cmd: the first word after run.sh is the
+# branch to clone, the rest are train.py (hydra) overrides.
+name: nvpdyf-smoke
+desc: 1 epoch / 200 frames, pipeline check
+
+cmd: >
+  bash jobs/run.sh contrast-analysis
+    datasets.input_dir=data
+    trainer.device=0
+    trainer.imgsz=960
+    trainer.batch=16
+    trainer.workers=8
+    trainer.epochs=1
+    datasets.max_train_images=200
+    trainer.eval_zero_shot=false
+    trainer.eval_every_k_epochs=1
+    trainer.run_name=_smoke
+    trainer.override=true
+
+inputs:
+  - jobs/run.sh
+
+outputs:
+  - artifacts.tgz # the whole saved/ tree; unpack with `tar xzf artifacts.tgz`
+
+flags:
+  - attach-project-disk # mounts the project storage read-only at $DS_PROJECT_HOME
+
+env:
+  vars:
+    - PYTHONUNBUFFERED: 1 # otherwise the logs arrive in 8 KB blocks
+    # COMET_API_KEY is deliberately absent: project secrets are added to the
+    # environment automatically, and naming it here can shadow it.
+  python:
+    # NOT `auto`: auto ships this laptop's CPU-only torch to a GPU VM.
+    type: manual
+    version: 3.10.13
+    requirements-file: requirements.txt
+
+cloud-instance-types:
+  - g1.1 # V100 32 GB. g2.1 / gt4.1 have a default quota of 0.
