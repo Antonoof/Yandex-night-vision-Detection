@@ -132,14 +132,28 @@ expect - `trainer.device=[0,1]` (Hydra list syntax) would train fine but
 eval/preprocessing paths below would silently fall back to single-device.
 
 `trainer.device="0,1"` is the ultralytics convention for DDP training across
-two GPUs, and `model.train()` picks it up unchanged - no code on top of that
-is required for the training step itself.
+two GPUs, but `model.train()` **never** receives it as-is: it always gets a
+single device (`train_device = eval_devices[0]`, resolved in `train.py`).
 
-Everything else in the pipeline (Zero-DCE preprocessing, zero-shot eval,
-periodic in-training eval, the final night/day pass) is a pair of
-independent single-GPU jobs rather than a DDP job, so ultralytics' own
-multi-GPU support does not cover it. `train.py` splits `trainer.device` into
-individual devices (`src.utils.init_utils.split_devices`) and, whenever
+This is deliberate, not an oversight. Ultralytics' multi-GPU training does
+not run in this process - it serializes the trainer's hyperparameters into a
+temp script and re-launches it as a subprocess via `torch.distributed.run`
+(`ultralytics.utils.dist.generate_ddp_file`). That subprocess rebuilds the
+trainer from scratch from those hyperparameters alone; it has no idea about
+`model.add_callback(...)` calls made on the original trainer object in this
+process. `CometRunLogger` and `PeriodicNightDayEval` both attach through
+exactly that mechanism (`comet_run.attach(model)`, `periodic.attach(model)`
+in `train.py`), so under real DDP training their callbacks silently never
+fire: no per-epoch losses/lr/grad_norm/per-class AP, no periodic night/day
+curve - only the final post-training `log_eval` call (made in this process,
+after `model.train()` returns) reaches Comet. A run trained this way shows
+one lonely point in Comet instead of a curve.
+
+So the training step itself is always single-GPU. Everything else in the
+pipeline (Zero-DCE preprocessing, zero-shot eval, periodic in-training eval,
+the final night/day pass) is still a pair of independent single-GPU jobs,
+and *that* is what the second GPU is for. `train.py` splits `trainer.device`
+into individual devices (`src.utils.init_utils.split_devices`) and, whenever
 there are two, runs the independent halves concurrently, one per GPU
 (`src.utils.parallel.run_paired`):
 
@@ -151,11 +165,9 @@ With a single device (the default), behavior and timing are unchanged from
 before this existed - `split_devices` returns a one-element list and every
 parallel path collapses back to the original sequential calls.
 
-`trainer.batch` is the **global** batch size: ultralytics splits it evenly
-across the devices passed to `model.train()`. Double it if you want to keep
-the per-GPU batch (and effective learning rate) the same as a comparable
-single-GPU run, e.g. `trainer.batch=16` for what was `trainer.batch=8` on
-one T4.
+`trainer.batch` is a **per-GPU** batch size again, same as single-device
+runs: since `model.train()` no longer sees two devices, ultralytics has
+nothing to split it across.
 
 ## Recommended ablation sequence
 

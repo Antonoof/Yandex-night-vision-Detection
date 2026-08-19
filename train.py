@@ -77,10 +77,18 @@ def main(config):
     # train/val, night/day evaluation) can also run two single-GPU jobs at
     # once instead of one after another. See src/utils/parallel.py.
     eval_devices = split_devices(device)
+    # model.train() always gets a single device, never the "0,1" DDP form:
+    # ultralytics runs multi-GPU training in a subprocess that rebuilds the
+    # trainer from scratch, which drops every callback attached via
+    # model.add_callback() below (CometRunLogger, PeriodicNightDayEval) -
+    # per-epoch metrics silently stop reaching Comet. The second GPU stays
+    # in use for the concurrent preprocessing/eval halves above and below.
+    train_device = eval_devices[0]
     configure_nms_time_limit(config.metrics.nms_max_time_img)
     logger.info(
-        "device: %s | eval_devices: %s | comet: %s",
+        "device: %s | train_device: %s | eval_devices: %s | comet: %s",
         device,
+        train_device,
         eval_devices,
         "enabled" if USE_COMET else "disabled",
     )
@@ -256,7 +264,7 @@ def main(config):
             batch=config.trainer.batch,
             freeze=config.trainer.freeze or None,
             seed=config.trainer.seed,
-            device=device,
+            device=train_device,
             project=str(ROOT_PATH / config.trainer.save_dir),
             name=config.trainer.run_name,
             exist_ok=True,
