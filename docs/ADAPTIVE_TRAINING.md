@@ -117,6 +117,38 @@ The metric config also sets `metrics.nms_max_time_img=0.5`. This only raises
 the NMS time budget for the low-confidence (`conf=0.001`) mAP pass; it does
 not alter boxes or scores, and prevents timeout-truncated validation batches.
 
+## 6. Multi-GPU (2 devices)
+
+```bash
+python3 train.py trainer.device=0,1
+```
+
+`trainer.device="0,1"` is the ultralytics convention for DDP training across
+two GPUs, and `model.train()` picks it up unchanged - no code on top of that
+is required for the training step itself.
+
+Everything else in the pipeline (Zero-DCE preprocessing, zero-shot eval,
+periodic in-training eval, the final night/day pass) is a pair of
+independent single-GPU jobs rather than a DDP job, so ultralytics' own
+multi-GPU support does not cover it. `train.py` splits `trainer.device` into
+individual devices (`src.utils.init_utils.split_devices`) and, whenever
+there are two, runs the independent halves concurrently, one per GPU
+(`src.utils.parallel.run_paired`):
+
+* Zero-DCE: the train split on one GPU, the val split on the other.
+* Zero-shot / periodic / final evaluation: the night subset on one GPU, the
+  day subset on the other.
+
+With a single device (the default), behavior and timing are unchanged from
+before this existed - `split_devices` returns a one-element list and every
+parallel path collapses back to the original sequential calls.
+
+`trainer.batch` is the **global** batch size: ultralytics splits it evenly
+across the devices passed to `model.train()`. Double it if you want to keep
+the per-GPU batch (and effective learning rate) the same as a comparable
+single-GPU run, e.g. `trainer.batch=16` for what was `trainer.batch=8` on
+one T4.
+
 ## Recommended ablation sequence
 
 Change one axis per run:

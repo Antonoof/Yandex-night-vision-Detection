@@ -21,7 +21,7 @@ from pathlib import Path
 import torch
 from ultralytics import YOLO
 
-from src.metrics.detection import evaluate_detector
+from src.metrics.detection import evaluate_night_day
 from src.utils.visualize import draw_comparison
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,9 @@ class PeriodicNightDayEval:
         save_dir (str | Path): where per-epoch figures are written.
         n_samples (int): frames per figure; 0 turns figures off.
         viz_conf (float): human-facing confidence threshold for the figures.
+        devices (list[int | str] | None): devices available for this eval
+            pass. With 2, night and day run concurrently, one per device;
+            defaults to a single device taken from eval_kwargs["device"].
     """
 
     def __init__(
@@ -52,6 +55,7 @@ class PeriodicNightDayEval:
         save_dir=".",
         n_samples=6,
         viz_conf=0.25,
+        devices=None,
     ):
         self.night_records = night_records
         self.day_records = day_records
@@ -61,6 +65,7 @@ class PeriodicNightDayEval:
         self.save_dir = Path(save_dir)
         self.n_samples = int(n_samples or 0)
         self.viz_conf = viz_conf
+        self.devices = list(devices) if devices else [self.eval_kwargs["device"]]
         # fixed frames, so figures from different epochs are comparable
         self._samples = {
             "night": sorted(night_records, key=lambda r: r["name"])[: self.n_samples],
@@ -82,13 +87,19 @@ class PeriodicNightDayEval:
         )
 
     def _snapshot(self, trainer):
-        """An inference-ready YOLO holding the weights as they are right now.
+        """A factory for inference-ready YOLOs holding the weights as they
+        are right now.
 
         Prefers the EMA weights: those are what ultralytics validates and what
         ends up in best.pt, so measuring anything else would describe a model
         we do not keep. Falls back to last.pt, which may lag by one epoch
         depending on the ultralytics version's callback order - hence the
         warning.
+
+        Returns a factory rather than a built model: with 2 devices, night
+        and day need their own independent instance (see evaluate_night_day),
+        and a factory lets each thread load its own from the same weights on
+        disk instead of sharing one mutable model object.
         """
         try:
             ema = getattr(getattr(trainer, "ema", None), "ema", None)
@@ -96,7 +107,7 @@ class PeriodicNightDayEval:
             probe = self.save_dir / "_periodic_probe.pt"
             probe.parent.mkdir(parents=True, exist_ok=True)
             torch.save({"model": deepcopy(net).float().eval()}, probe)
-            return YOLO(str(probe)), "ema"
+            return (lambda: YOLO(str(probe))), "ema"
         except Exception as e:
             last = getattr(trainer, "last", None)
             if last is not None and Path(last).is_file():
@@ -105,7 +116,7 @@ class PeriodicNightDayEval:
                     "отставать на эпоху",
                     e,
                 )
-                return YOLO(str(last)), "last.pt"
+                return (lambda: YOLO(str(last))), "last.pt"
             raise
 
     def _on_fit_epoch_end(self, trainer):
@@ -113,16 +124,18 @@ class PeriodicNightDayEval:
         if self.every_k <= 0 or epoch % self.every_k:
             return
 
-        model = None
+        model_factory = None
         try:
-            model, source = self._snapshot(trainer)
+            model_factory, source = self._snapshot(trainer)
             logger.info("эпоха %d: замеряю ночь/день (веса: %s)", epoch, source)
 
-            night = evaluate_detector(
-                model, self.night_records, desc=f"ep{epoch} night", **self.eval_kwargs
-            )
-            day = evaluate_detector(
-                model, self.day_records, desc=f"ep{epoch} day", **self.eval_kwargs
+            night, day = evaluate_night_day(
+                model_factory,
+                self.night_records,
+                self.day_records,
+                self.eval_kwargs,
+                self.devices,
+                desc_prefix=f"ep{epoch} ",
             )
 
             gap = (day["map"] - night["map"]) / day["map"] * 100 if day["map"] else 0.0
@@ -142,11 +155,11 @@ class PeriodicNightDayEval:
                 self.comet_run.log_eval("day", day, epoch=epoch)
                 self.comet_run.log_metrics({"gap/map_pct": gap}, epoch=epoch)
 
-            self._draw(model, epoch)
+            self._draw(model_factory(), epoch)
         except Exception as e:
             logger.warning("периодическая оценка на эпохе %d не удалась: %s", epoch, e)
         finally:
-            del model
+            del model_factory
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 

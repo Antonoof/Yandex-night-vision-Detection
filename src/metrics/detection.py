@@ -1,12 +1,14 @@
 """COCO-style detection metrics, computed separately for night and day."""
 
 import logging
+from functools import partial
 
 import torch
 from torchmetrics.detection import MeanAveragePrecision
 from tqdm.auto import tqdm
 
 from src.datasets.bdd100k import CLASSES, IMG_H, IMG_W
+from src.utils.parallel import run_paired
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +126,77 @@ def evaluate_detector(
         out[f"map_{CLASSES[class_id]}"] = float(value)
     metric.reset()
     return out
+
+
+def evaluate_night_day(
+    model_factory,
+    night_records,
+    day_records,
+    eval_kwargs,
+    devices,
+    class_map=None,
+    desc_prefix="",
+):
+    """Evaluate night and day, in parallel across devices when there's more than one.
+
+    A single ultralytics.YOLO instance isn't safe to share between two
+    threads targeting two different devices: predict() moves the underlying
+    nn.Module to its target device as a side effect, so concurrent calls on
+    one object would race. `model_factory` is therefore called once per
+    device to give each thread its own instance from the same weights.
+
+    Args:
+        model_factory (Callable[[], YOLO]): builds a fresh, ready-to-use
+            model. Cheap to call more than once (it just reloads a
+            checkpoint).
+        night_records, day_records (list[dict]): val subsets.
+        eval_kwargs (dict): passed to evaluate_detector (imgsz, conf, iou,
+            max_det, batch_size); any "device" entry is ignored in favor of
+            `devices`.
+        devices (list[int | str]): 1 or 2 devices. With 2, night runs on
+            devices[0] and day on devices[1] concurrently; with 1, both run
+            sequentially on devices[0] using a single model instance (same
+            behavior as calling evaluate_detector twice by hand).
+        class_map, desc_prefix: forwarded to evaluate_detector.
+    Returns:
+        (night, day): output of evaluate_detector for each subset.
+    """
+    devices = list(devices)
+    kwargs = {k: v for k, v in eval_kwargs.items() if k != "device"}
+
+    if len(devices) < 2:
+        model = model_factory()
+        device = devices[0]
+        night = evaluate_detector(
+            model,
+            night_records,
+            device=device,
+            class_map=class_map,
+            desc=f"{desc_prefix}night",
+            **kwargs,
+        )
+        day = evaluate_detector(
+            model,
+            day_records,
+            device=device,
+            class_map=class_map,
+            desc=f"{desc_prefix}day",
+            **kwargs,
+        )
+        return night, day
+
+    def _call(records, device, desc):
+        model = model_factory()
+        return evaluate_detector(
+            model, records, device=device, class_map=class_map, desc=desc, **kwargs
+        )
+
+    jobs = [
+        partial(_call, night_records, devices[0], f"{desc_prefix}night"),
+        partial(_call, day_records, devices[1], f"{desc_prefix}day"),
+    ]
+    night, day = run_paired(jobs, devices)
+    return night, day
 
 
 def print_results(title, night, day):

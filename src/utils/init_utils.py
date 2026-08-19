@@ -34,3 +34,25 @@ def resolve_device(device_cfg):
     if device_cfg == "auto":
         return 0 if torch.cuda.is_available() else "cpu"
     return device_cfg
+
+
+def split_devices(device):
+    """
+    Split a resolved device into the individual GPUs it names.
+
+    ``trainer.device="0,1"`` is also the ultralytics convention for launching
+    DDP training across two GPUs; this reuses the same string to decide
+    whether the *other* per-split work in the pipeline (Zero-DCE on
+    train/val, night/day evaluation) can run two single-GPU jobs in parallel
+    instead of one after another.
+
+    Args:
+        device (int | str): output of resolve_device, e.g. 0, "cpu", "0,1".
+    Returns:
+        devices (list[int | str]): ["0", "1"] for "0,1"; otherwise a single-
+            element list holding `device` unchanged.
+    """
+    text = str(device)
+    if "," in text and all(part.strip().isdigit() for part in text.split(",")):
+        return [part.strip() for part in text.split(",")]
+    return [device]
