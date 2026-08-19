@@ -43,6 +43,17 @@ CSV_COLUMNS = [
     "rms_contrast",
     "matched",
     "best_iou",
+    # pixel coordinates of both boxes, so the figures can be drawn straight
+    # from this table - no model, no ultralytics, no GPU needed to look at
+    # where a prediction actually landed.
+    "gt_x1",
+    "gt_y1",
+    "gt_x2",
+    "gt_y2",
+    "pred_x1",
+    "pred_y1",
+    "pred_x2",
+    "pred_y2",
 ]
 
 
@@ -125,6 +136,10 @@ def frame_contrast(path, boxes, ring_frac=0.5):
                 # ceiling on what any tone-mapping method could recover.
                 "dyn_range": float(high - low),
                 "rms_contrast": float(patch.std()),
+                "gt_x1": x1,
+                "gt_y1": y1,
+                "gt_x2": x2,
+                "gt_y2": y2,
                 "_pixel_box": (x1, y1, x2, y2),
             }
         )
@@ -141,6 +156,7 @@ def collect(records, ring_frac=0.5, desc="contrast"):
                 row["timeofday"] = record["timeofday"]
                 row["matched"] = None
                 row["best_iou"] = None
+                row.update(dict.fromkeys(("pred_x1", "pred_y1", "pred_x2", "pred_y2")))
                 rows.append(row)
         except Exception as e:  # a single unreadable frame must not stop the run
             logger.warning("кадр %s пропущен: %s", record["name"], e)
@@ -205,8 +221,15 @@ def match_predictions(model, records, rows, imgsz, conf, iou_thr, device, batch_
                 if not same_class.any():
                     row["matched"], row["best_iou"] = False, 0.0
                     continue
-                ious = _iou_matrix([row["_pixel_box"]], pred_boxes[same_class])[0]
-                best = float(ious.max())
+                candidates = pred_boxes[same_class]
+                ious = _iou_matrix([row["_pixel_box"]], candidates)[0]
+                winner = int(ious.argmax())
+                best = float(ious[winner])
                 row["best_iou"] = best
                 row["matched"] = best >= iou_thr
+                # keep the box that won, so the overlay figures can show
+                # exactly how far off it landed
+                x1, y1, x2, y2 = candidates[winner]
+                row["pred_x1"], row["pred_y1"] = int(x1), int(y1)
+                row["pred_x2"], row["pred_y2"] = int(x2), int(y2)
     return rows

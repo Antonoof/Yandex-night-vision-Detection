@@ -15,7 +15,10 @@ import hydra
 
 from src.analysis import (
     collect,
+    draw_localization_grid,
+    localization_summary,
     match_predictions,
+    plot_localization,
     plot_overview,
     recall_by_contrast,
     summarize,
@@ -94,6 +97,22 @@ def main(config):
     summarize(rows)
     write_csv(rows, save_path / "boxes.csv")
     plot_overview(rows, save_path / "contrast.png", recall_curves=curves)
+
+    if config.analysis.weights:
+        # The localization half only exists once boxes have been matched.
+        localization_summary(rows)
+        plot_localization(rows, save_path / "localization.png")
+        images_dir = data_root / "images" / config.analysis.split
+        for tod, suffix in (("night", "night"), ("daytime", "day")):
+            draw_localization_grid(
+                rows,
+                images_dir,
+                save_path / f"boxes_{suffix}.png",
+                timeofday=tod,
+                n=config.analysis.num_examples,
+                iou_range=tuple(config.analysis.example_iou_range),
+            )
+
     logger.info("готово: %s", save_path)
 
 

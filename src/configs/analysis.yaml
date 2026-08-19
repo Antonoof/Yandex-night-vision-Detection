@@ -22,4 +22,9 @@ analysis:
   batch: 16
   device: cpu # inference here is light; "0" if a GPU happens to be free
   max_frames: null # cap for a quick dry run
+  # Overlay figures: how many crops per split, and which IoU band to sample.
+  # The band is deliberately mid-range - those are the typical cases, not the
+  # cherry-picked disasters.
+  num_examples: 8
+  example_iou_range: [0.4, 0.8]
   save_path: saved/analysis/contrast
