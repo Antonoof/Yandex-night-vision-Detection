@@ -1,5 +1,6 @@
 import os
 import random
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -46,12 +47,22 @@ def split_devices(device):
     train/val, night/day evaluation) can run two single-GPU jobs in parallel
     instead of one after another.
 
+    Also accepts Hydra's list override syntax (``trainer.device=[0,1]``),
+    which arrives here as a list/OmegaConf ListConfig rather than a string -
+    without this, that spelling would look like a single, unrecognized
+    device and silently fall back to sequential (single-device) execution
+    everywhere below train() even though DDP training itself works fine
+    with a list.
+
     Args:
-        device (int | str): output of resolve_device, e.g. 0, "cpu", "0,1".
+        device (int | str | Sequence): output of resolve_device, e.g. 0,
+            "cpu", "0,1", or [0, 1].
     Returns:
-        devices (list[int | str]): ["0", "1"] for "0,1"; otherwise a single-
-            element list holding `device` unchanged.
+        devices (list[int | str]): ["0", "1"] for "0,1" or [0, 1]; otherwise
+            a single-element list holding `device` unchanged.
     """
+    if isinstance(device, Sequence) and not isinstance(device, (str, bytes)):
+        return [str(part).strip() for part in device]
     text = str(device)
     if "," in text and all(part.strip().isdigit() for part in text.split(",")):
         return [part.strip() for part in text.split(",")]

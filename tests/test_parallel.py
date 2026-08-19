@@ -1,5 +1,7 @@
 import threading
 
+from omegaconf import OmegaConf
+
 from src.utils.init_utils import split_devices
 from src.utils.parallel import run_paired
 
@@ -18,6 +20,17 @@ def test_split_devices_non_numeric_comma_is_not_split():
     # e.g. an already-single device string that happens to contain a comma
     # for some other reason must not be mistaken for a device list.
     assert split_devices("cuda:0,extra") == ["cuda:0,extra"]
+
+
+def test_split_devices_plain_list():
+    assert split_devices([0, 1]) == ["0", "1"]
+
+
+def test_split_devices_hydra_list_override():
+    # trainer.device=[0,1] on the CLI arrives as an OmegaConf ListConfig,
+    # not a plain string - must be recognized the same as "0,1".
+    devices = OmegaConf.create({"d": [0, 1]}).d
+    assert split_devices(devices) == ["0", "1"]
 
 
 def test_run_paired_single_device_runs_sequentially_in_caller_thread():

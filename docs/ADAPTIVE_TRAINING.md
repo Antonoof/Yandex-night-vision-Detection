@@ -120,8 +120,16 @@ not alter boxes or scores, and prevents timeout-truncated validation batches.
 ## 6. Multi-GPU (2 devices)
 
 ```bash
-python3 train.py trainer.device=0,1
+python3 train.py trainer.device=\'0,1\'
 ```
+
+The value must be quoted (`\'0,1\'`, escaped so the literal quotes reach
+Hydra): Hydra's override grammar treats a bare comma as list/sweep syntax and
+rejects `trainer.device=0,1` with "Ambiguous value for argument". Quoting
+makes it a plain string, which is what `split_devices` and ultralytics both
+expect - `trainer.device=[0,1]` (Hydra list syntax) would train fine but
+`split_devices` would not recognize it as two devices, so the parallel
+eval/preprocessing paths below would silently fall back to single-device.
 
 `trainer.device="0,1"` is the ultralytics convention for DDP training across
 two GPUs, and `model.train()` picks it up unchanged - no code on top of that
