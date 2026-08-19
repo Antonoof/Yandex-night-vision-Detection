@@ -5,25 +5,28 @@
 #
 #   datasphere project job execute -p <project-id> -c jobs/train.yaml
 #
-# Everything you normally edit is in cmd: the first word after run.sh is the
-# branch to clone, the rest are train.py (hydra) overrides.
+# Everything you normally edit is in cmd: the first word after run.py is the
+# branch to clone, the rest are train.py (hydra) overrides. jobs/run.py is the
+# job's entry point and is uploaded automatically - no `inputs` section needed.
+#
+# Keep every line of cmd at the same indentation. A YAML `>` block folds
+# equally-indented lines into one line with spaces, but preserves the newlines
+# of any line indented deeper - which would silently split the command and run
+# train.py with no overrides at all.
 name: nvpdyf-30-boxheavy
 desc: box 7.5 -> 10.0 at imgsz=960, one axis against run 14
 
 cmd: >
-  bash jobs/run.sh contrast-analysis
-    datasets.input_dir=data
-    trainer.device=0
-    trainer.imgsz=960
-    trainer.batch=16
-    trainer.workers=8
-    augment=default
-    loss=box_heavy
-    trainer.eval_zero_shot=false
-    trainer.run_name=30_boxheavy-imgsz960_yolov8n_nvpdyf
-
-inputs:
-  - jobs/run.sh
+  python3 jobs/run.py master
+  datasets.input_dir=data
+  trainer.device=0
+  trainer.imgsz=960
+  trainer.batch=16
+  trainer.workers=8
+  augment=default
+  loss=box_heavy
+  trainer.eval_zero_shot=false
+  trainer.run_name=30_boxheavy-imgsz960_yolov8n_nvpdyf
 
 outputs:
   - artifacts.tgz # the whole saved/ tree; unpack with `tar xzf artifacts.tgz`
@@ -36,8 +39,10 @@ env:
     - PYTHONUNBUFFERED: 1
   python:
     type: manual
-    version: 3.10.13
-    requirements-file: requirements.txt
+    version: "3.10"
+    # jobs/requirements.txt, not the root one: the CLI parses every line
+    # as a pip requirement and chokes on '#' comments.
+    requirements-file: jobs/requirements.txt
 
 cloud-instance-types:
   - g1.1

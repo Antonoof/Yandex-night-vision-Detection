@@ -18,9 +18,9 @@ installing torch. See [Cost](#cost).
 ## One-time setup
 
 1. **Dataset** — it already lives in the project storage (the folders you see
-   in the JupyterLab root). Nothing else to do: `jobs/run.sh` finds it by the
-   same rule `train.py` uses, a folder holding `data.yaml`, `images/` and
-   `timeofday.csv`.
+   in the JupyterLab root). Nothing else to do: [../jobs/run.py](../jobs/run.py)
+   finds it by the same rule `train.py` uses, a folder holding `data.yaml`,
+   `images/` and `timeofday.csv`.
 2. **Comet** — project page → **Secrets** → add `COMET_API_KEY`. Project
    secrets become environment variables inside the job automatically, so
    [train.py:5](../train.py#L5) picks it up exactly as on Kaggle. It is *not*
@@ -31,17 +31,17 @@ installing torch. See [Cost](#cost).
    mkdir ~/nvpdyf && cd ~/nvpdyf
    python3 -m venv .venv && source .venv/bin/activate
    pip install datasphere yandexcloud
-   git clone https://github.com/Antonoof/Yandex-night-vision-Detection.git repo
+   git clone -b master https://github.com/Antonoof/Yandex-night-vision-Detection.git repo
    yc init          # or pass a token later: datasphere -t <oauth-token> ...
    ```
 
    The project id is in the console URL, or from
    `datasphere project list -c <community-id>`.
 
-The local clone is used for two files only — `jobs/run.sh` (the job's single
-input) and `requirements.txt` (read by the CLI to build the VM's
-environment). The code that actually trains is whatever `run.sh` clones on
-the VM, so **push your branch before launching**.
+The local clone is used for two files only — `jobs/run.py` (the job's entry
+point, uploaded automatically) and `jobs/requirements.txt` (read by the CLI to
+build the VM's environment). The code that actually trains is whatever
+`run.py` clones on the VM, so **push your branch before launching**.
 
 ## Launching
 
@@ -55,11 +55,17 @@ Everything you normally change lives in one place, the `cmd:` block:
 
 ```yaml
 cmd: >
-  bash jobs/run.sh contrast-analysis      # <- branch to clone
-    trainer.imgsz=960                     # <- from here on: train.py overrides,
-    loss=box_heavy                        #    exactly as on the Kaggle command line
-    trainer.run_name=30_boxheavy-imgsz960_yolov8n_nvpdyf
+  python3 jobs/run.py master              # <- branch to clone
+  trainer.imgsz=960                       # <- from here on: train.py overrides,
+  loss=box_heavy                          #    exactly as on the Kaggle command line
+  trainer.run_name=30_boxheavy-imgsz960_yolov8n_nvpdyf
 ```
+
+Keep those lines at the same indentation, tempting as it is to indent the
+overrides under the entry point. A YAML `>` block folds equally-indented lines
+into one, but keeps the newline of any line indented deeper — and a `cmd`
+split across lines runs `train.py` with no overrides at all, silently. The
+example in Yandex's own documentation is indented the second way.
 
 Also bump `name:` when the run is a different experiment — job names are
 unique within a project, the same discipline as `trainer.run_name`. To repeat
@@ -87,7 +93,7 @@ top to bottom — it is structured as four banners:
 **Logs.** `stdout.txt`, `stderr.txt`, `system.log` (VM setup and package
 installation), `log.txt` and `gpu_stats.tsv` appear in the local working
 directory; the path is printed as the very first line of `execute`.
-`run.sh` redirects training to stdout, so `stdout.txt` is the complete,
+`run.py` redirects training to stdout, so `stdout.txt` is the complete,
 correctly ordered log — `stderr.txt` should be empty. `gpu_stats.tsv` answers
 "is the dataloader starving the GPU", which is what `trainer.workers` is for.
 
@@ -131,10 +137,14 @@ Two settings exist to hold that number down:
 | Symptom | Cause |
 | --- | --- |
 | training is absurdly slow, `cuda: False` in the first lines | `python: auto` would ship your laptop's CPU-only torch; the configs use `type: manual` for exactly this |
+| `Python root module(-s) was not found automatically or set in config` | `cmd` does not start with a Python entry point — the CLI derives the root module from it, which is why `run.py` is Python and not a shell script |
+| `InvalidRequirement: Expected package name...` | the CLI parses every line of `requirements-file` as a pip requirement and does not skip `#` comments — hence the separate, comment-free `jobs/requirements.txt` |
+| `Main script ... must have line if __name__ == '__main__'` | the CLI imports the entry point **on your laptop** to inspect its dependencies; everything in `run.py` must stay under that guard |
+| train.py ran with none of your overrides | the `cmd` lines were indented unequally, see above |
 | `DS_PROJECT_HOME is not set` | the `attach-project-disk` flag is missing from the config |
 | `no dataset under ...` | the dataset is deeper than 5 levels in the project storage, or is missing `timeofday.csv` |
 | no VM ever becomes available | `g2.1` / `gt4.1` / `g1.4` have a **default quota of 0**; they open after topping up the billing account by ≥500 ₽ or a support request. `g1.1` does not |
 | job dies on Ctrl+C when you only wanted to stop watching | that is what Ctrl+C does here; use `attach` to come back |
 | "no space left" during the dataset copy | uncomment `working-storage` in `jobs/train.yaml` |
 | job rejected on `name` | job names are unique per project — bump it |
-| a hydra error at startup | the branch in `cmd` does not have the config group you passed (e.g. `loss=box_heavy` lives on `contrast-analysis`) |
+| a hydra error at startup | the branch in `cmd` does not have the config group you passed (e.g. `loss=box_heavy` landed on `master` only after the contrast-analysis merge) |
