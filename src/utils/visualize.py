@@ -148,7 +148,7 @@ def draw_comparison(model, records, out_path, imgsz, conf, device, title=""):
     return out_path
 
 
-def draw_predictions(model, records, out_path, imgsz, conf, device):
+def draw_predictions(model, records, out_path, imgsz, conf, device, class_map=None):
     """Save a stacked figure: one row per record, predictions drawn in red.
 
     Args:
@@ -159,6 +159,12 @@ def draw_predictions(model, records, out_path, imgsz, conf, device):
         conf (float): confidence threshold - a human-facing value (e.g.
             0.25), unlike the low threshold used for mAP evaluation.
         device (int | str): device to run inference on.
+        class_map (dict[int, int] | None): same meaning as in
+            evaluate_detector - keep only these prediction classes and remap
+            them to ours. Required for COCO weights, whose class indices run
+            to 79 while CLASSES has 7 entries; without it this function
+            raises IndexError on the first prediction outside our set, and
+            the picture would be labelled with the wrong names anyway.
     """
     fig, axes = plt.subplots(len(records), 1, figsize=(9, 5 * len(records)))
     axes = [axes] if len(records) == 1 else axes
@@ -170,6 +176,10 @@ def draw_predictions(model, records, out_path, imgsz, conf, device):
         ax.imshow(Image.open(r["path"]))
         kept = 0
         for box, cls in zip(res.boxes.xyxy.cpu(), res.boxes.cls.cpu().long()):
+            if class_map is not None:
+                if int(cls) not in class_map:
+                    continue
+                cls = class_map[int(cls)]
             x1, y1, x2, y2 = box.tolist()
             ax.add_patch(
                 plt.Rectangle(

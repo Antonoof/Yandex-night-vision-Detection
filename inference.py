@@ -133,6 +133,7 @@ def main(config):
                 imgsz=config.inferencer.imgsz,
                 conf=config.inferencer.visualization_conf,
                 device=device,
+                class_map=eval_kwargs.get("class_map"),
             )
             logger.info("visualizations saved to %s", predictions_path)
 
