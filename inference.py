@@ -8,7 +8,7 @@ from hydra.utils import instantiate
 from src.datasets import bdd100k
 from src.logger import setup_logging
 from src.metrics import evaluate_detector, print_results
-from src.utils.init_utils import resolve_device, set_random_seed
+from src.utils.init_utils import as_torch_device, resolve_device, set_random_seed
 from src.utils.io_utils import ROOT_PATH
 from src.utils.visualize import draw_predictions
 
@@ -54,6 +54,30 @@ def main(config):
             "поэтому его числа не сравнимы с val напрямую."
         )
 
+    # A checkpoint trained on enhanced frames has to be measured on enhanced
+    # frames. Skipping this would not raise - it would quietly evaluate the
+    # model out of distribution and report the mismatch as a bad model.
+    transform_cfg = config.preprocess.transform
+    if transform_cfg is not None:
+        overrides = {}
+        if "weights_path" in transform_cfg:
+            overrides["weights_path"] = str(ROOT_PATH / transform_cfg.weights_path)
+        if "device" in transform_cfg:
+            overrides["device"] = as_torch_device(device)
+        logger.info(
+            "препроцессинг: %s (apply_to=%s) - как при обучении этой модели",
+            config.preprocess.name,
+            config.preprocess.apply_to,
+        )
+        # rewrites each record's "path" to the frame it just wrote
+        bdd100k.build_yolo_dataset(
+            {split: records},
+            ROOT_PATH / config.datasets.work_dir,
+            transform=instantiate(transform_cfg, **overrides),
+            apply_to=config.preprocess.apply_to,
+            jpeg_quality=config.preprocess.jpeg_quality,
+        )
+
     model = instantiate(config.model, weights=config.inferencer.weights)
 
     eval_kwargs = dict(
@@ -64,6 +88,13 @@ def main(config):
         device=device,
         batch_size=config.inferencer.batch,
     )
+    # COCO weights predict 80 classes indexed COCO's way; ours are 7 indexed
+    # alphabetically. Without the map, "car" is scored against "motorcycle"
+    # and a perfectly good model reports a near-zero mAP.
+    if config.inferencer.zero_shot:
+        eval_kwargs["class_map"] = bdd100k.COCO80_TO_OURS
+        logger.info("zero-shot: предсказания COCO-80 переводятся в наши 7 классов")
+
     night_metrics = evaluate_detector(model, night_records, desc="night", **eval_kwargs)
     day_metrics = evaluate_detector(model, day_records, desc="day", **eval_kwargs)
     print_results(
