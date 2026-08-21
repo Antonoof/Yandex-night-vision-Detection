@@ -12,3 +12,6 @@ saved/
 outputs/
 # COCO-pretrained weights ultralytics downloads on first run
 *.pt
+
+# os
+.DS_Store

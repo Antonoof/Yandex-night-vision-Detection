@@ -2,10 +2,19 @@ defaults:
   - model: baseline
   - datasets: bdd100k
   - metrics: detection
+  - preprocess: none
   - _self_
 
 inferencer:
+  # "val" while iterating; "test" only for the final, reported numbers. Unlike
+  # analyze_contrast.py this script does allow "test" - evaluating a finished
+  # checkpoint is what the split is for. Every run against it is on the record.
+  split: val
   weights: saved/runs/01_finetune_yolov8n_head/weights/best.pt
+  # true only for raw COCO weights (yolov8n.pt) with no fine-tuning: it turns
+  # on the COCO80 -> our-7 class translation. Leave false for our checkpoints,
+  # whose head already predicts our classes.
+  zero_shot: false
   imgsz: 640
   batch: 16
   device: auto # device index/name or "auto"

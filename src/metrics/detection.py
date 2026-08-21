@@ -77,7 +77,7 @@ def evaluate_detector(
         batch_size (int): frames per predict() call.
         class_map (dict[int, int] | None): if given, keep only predictions
             with these class indices and remap them to ours. Needed for
-            zero-shot eval (COCO-80 -> our 8 classes).
+            zero-shot eval (COCO-80 -> our 7 classes).
         desc (str): tqdm progress bar label.
     Returns:
         metrics (dict): flat dict of overall + per-class mAP/mAR values.

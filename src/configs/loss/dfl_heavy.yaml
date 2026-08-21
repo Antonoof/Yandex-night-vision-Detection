@@ -1,0 +1,19 @@
+# The other half of the edge-precision test, and the one the decomposition
+# points at directly.
+#
+# `box` (the CIoU term, raised in loss=box_heavy) penalises *where the box
+# ends up*. `dfl` penalises the shape of the per-coordinate distribution whose
+# mean becomes the edge - that is, how *decisively* the model commits to one
+# position instead of hedging across several.
+#
+# Measured on val, the night error is variance, not bias: the medians of the
+# centre offset and of the area ratio match day almost exactly (1.022 vs
+# 1.020), while the spread is 26-35% wider on every coordinate. A hedged edge
+# distribution is what that looks like from the inside - so if either weight
+# moves the metric, this is the more likely one.
+#
+# Run against loss=default, exactly like box_heavy: one axis at a time. Do not
+# raise both at once until each has been measured alone.
+box: 7.5
+cls: 0.5
+dfl: 3.0

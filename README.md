@@ -1,6 +1,7 @@
 # Night Vision Project
 
-Fine-tunes a YOLOv8 detector on [BDD100K](https://www.kaggle.com/datasets/nikitakukuzey/nvpd-bdd100k)
+Fine-tunes a YOLOv8 detector on BDD100K (the `nvpdyf-bdd100k` YOLO-format
+build, see [Data](#data))
 and evaluates it separately on night and day frames, to measure and reduce
 the night-time performance gap. Runs the same way locally, on Kaggle, and on
 a cloud GPU VM — everything is a plain Python script driven by
@@ -32,47 +33,23 @@ pre-commit install
 
 ### Kaggle notebook
 
-Kaggle already ships a CUDA-linked `torch`/`torchvision` - do not let pip
-reinstall them. In a notebook cell:
-
-```bash
-!pip install -q ultralytics torchmetrics pycocotools hydra-core
-```
-
-Note: the package is `hydra-core`, not `hydra` - the latter is an
-unrelated, abandoned PyPI package and will fail to build.
-
-Then clone this repo into the notebook's working directory:
-
-```bash
-!git clone <this-repo-url> repo
-%cd repo
-```
-
-To use Comet tracking, pull the API key from Kaggle Secrets before invoking
-the script (the key just needs to be in the environment - `!python` inherits
-it from the notebook process):
+See **[docs/KAGGLE.md](docs/KAGGLE.md)** for the full runbook (notebook
+settings, cloning, the smoke test, getting results out, and the usual
+failure modes), or **[docs/DATASPHERE.md](docs/DATASPHERE.md)** for the same
+on Yandex DataSphere Jobs, which is where runs go when the Kaggle quota is
+out. The short version:
 
 ```python
-import os
-from kaggle_secrets import UserSecretsClient
-os.environ["COMET_API_KEY"] = UserSecretsClient().get_secret("COMET_API_KEY")
+!git clone -b yolo-baseline-scripts <this-repo-url> repo
+%cd repo
+!pip install -q ultralytics torchmetrics pycocotools hydra-core comet_ml
+!python3 train.py datasets.input_dir=/kaggle/input trainer.device=0
 ```
 
-Point `datasets.input_dir` at `/kaggle/input` itself, not at a specific
-dataset subfolder - Kaggle's exact mount path varies by notebook (e.g.
-`/kaggle/input/datasets/<owner>/<slug>/` vs. the older
-`/kaggle/input/<slug>/`), and the dataset search is recursive, so pointing
-at the whole input root finds it either way:
-
-```bash
-!python train.py datasets.input_dir=/kaggle/input trainer.device=0
-```
-
-If it still can't find the dataset (`FileNotFoundError` from
-`find_dataset_root`), run `!find /kaggle/input -maxdepth 5 -iname val.json`
-to see exactly where it landed and point `datasets.input_dir` there
-directly.
+Kaggle ships a CUDA-linked `torch`/`torchvision` already - do not
+`pip install -r requirements.txt` there, it can replace it with a CPU-only
+build. Turn **Internet** on in the notebook settings: `git clone`, the
+`yolov8n.pt` download and Comet all need it.
 
 ### Cloud GPU VM
 
@@ -82,22 +59,26 @@ auto` in the configs picks up the GPU automatically.
 
 ## Data
 
-Point `datasets.input_dir` (default `data/bdd100k`) at a folder that
+Point `datasets.input_dir` (default `data/nvpdyf-bdd100k`) at a folder that
 contains, somewhere inside it (nesting is fine - the code searches for it):
 
 ```
 images/{train,val,test}/*.jpg
-train.json
-val.json
+labels/{train,val,test}/*.txt
+data.yaml
+timeofday.csv
 ```
 
-Each `<split>.json` holds per-frame annotations with a `timeofday` field and
-`box_yolo` boxes (already normalized `[cx, cy, w, h]`) with `coco_category`
-labels - this is the schema produced by the
-[nvpd-bdd100k](https://www.kaggle.com/datasets/nikitakukuzey/nvpd-bdd100k)
-dataset. `src/datasets/bdd100k.py` converts it into the YOLO-format dataset
-(`images/`, `labels/`, `data.yaml`) that `ultralytics` expects, written to
-`datasets.work_dir` (default `data/bdd_yolo`).
+This is the `nvpdyf-bdd100k` dataset, already in YOLO format, so nothing is
+converted. `data.yaml` fixes the class order, which the label files encode as
+bare integers - `src/datasets/bdd100k.py` refuses to run if it disagrees with
+`CLASSES`. `timeofday.csv` maps `<split>/<file name>` to `daytime`/`night`
+and is what every night-vs-day split in this project is built on; it is a
+separate file because the YOLO format has nowhere to put it.
+
+`build_yolo_dataset` still rewrites the tree into `datasets.work_dir`
+(default `data/bdd_yolo`): `max_train_images` may have dropped frames, and
+the source tree also holds `test/`, which training must never see.
 
 ### nvpdyf-bdd100k (EDA baseline)
 
@@ -166,10 +147,18 @@ Checkpoints, logs and `results.json` are written under
 `saved/runs/<trainer.run_name>/`. Re-running with the same `trainer.run_name`
 raises an error unless you pass `trainer.override=true`.
 
-`train.py` only: set `COMET_API_KEY` in the environment to log the
-zero-shot and fine-tuned evaluation runs to Comet ML; without it, tracking
-is skipped and everything still runs normally. `inference.py` never touches
-Comet, regardless of this variable.
+`train.py` only: set `COMET_API_KEY` in the environment to log to Comet ML;
+without it, tracking is skipped and everything still runs normally.
+`inference.py` never touches Comet, regardless of this variable.
+
+One training run produces two Comet experiments: `00_baseline_zeroshot`
+(the un-finetuned COCO model on night/day) and `<trainer.run_name>`, which
+holds both the per-epoch curves — box/cls/dfl losses, learning rate,
+gradient norm, per-class AP and recall — and the final night/day mAP,
+including the small/medium/large breakdown. **Read
+[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) before starting a run**: it fixes
+the run naming, the tags and the metric names, and runs that break those
+conventions cannot be compared with the previous ones afterwards.
 
 To evaluate a trained checkpoint (and save a prediction visualization):
 
@@ -182,13 +171,33 @@ Results are written under `saved/eval/<inferencer.save_path>/`.
 ## Project layout
 
 ```
-src/datasets/bdd100k.py        BDD100K -> YOLO dataset conversion, class balance
-src/datasets/nvpdyf_bdd100k.py nvpdyf-bdd100k (pre-converted) EDA: stats, sampling
-src/model/yolo_model.py        ultralytics YOLO wrapper + head diagnostics
-src/metrics/detection.py       COCO-style mAP, computed separately for night/day
-src/logger/comet_writer.py     Comet ML run logging
-src/utils/visualize.py         prediction / ground-truth visualization
-src/configs/                   Hydra configs (baseline.yaml / inference.yaml + subconfigs)
-train.py / inference.py        entry points
-dataset_baseline.ipynb         nvpdyf-bdd100k EDA notebook (dataset info + sample scenes)
+src/datasets/bdd100k.py     BDD100K -> YOLO dataset conversion, class balance
+src/model/yolo_model.py     ultralytics YOLO wrapper + head diagnostics
+src/metrics/detection.py    COCO-style mAP, computed separately for night/day
+src/logger/comet_writer.py  Comet ML run logging (training curves + evaluation)
+src/utils/visualize.py      ground-truth and prediction visualization
+src/configs/                Hydra configs (baseline.yaml / inference.yaml + subconfigs)
+train.py / inference.py     entry points
+docs/READING_GUIDE.md       every file, in the order worth reading them
+docs/PROJECT_STRUCTURE.md   what every file does, where each constant lives
+docs/EXPERIMENTS.md         run naming, tags and the metric contract
+docs/KAGGLE.md              step-by-step runbook for Kaggle GPU
+docs/DATASPHERE.md          step-by-step runbook for Yandex DataSphere Jobs
+jobs/                       DataSphere job configs + the VM entry point
+notebooks/                  thin viewers over src/ - no logic of their own
 ```
+
+New to the codebase? Start with
+**[docs/READING_GUIDE.md](docs/READING_GUIDE.md)** — it walks all 33 files in
+dependency order, about two hours, with what to look for in each.
+[docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) is the reference to
+keep open beside it: the config system, the data flow, and how to tell from
+the log that the detection head was replaced.
+
+## Notebooks
+
+[`notebooks/01_dataset_overview.ipynb`](notebooks/01_dataset_overview.ipynb)
+builds the YOLO dataset, reports the class balance, and draws a couple of
+annotated scenes. It contains no logic of its own — every step is a call
+into `src/`, so the notebook cannot drift away from what `train.py` does.
+Training is not started from a notebook; it runs from the CLI as above.

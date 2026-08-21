@@ -1,0 +1,55 @@
+# Run 30: loss=box_heavy on top of run 14's configuration (augment=default,
+# imgsz=960, night mAP 0.2882). One changed axis: the box loss weight goes
+# 7.5 -> 10.0 - a direct test of the localization hypothesis. Roughly 3 hours
+# on a V100. Run jobs/smoke.yaml first.
+#
+#   datasphere project job execute -p <project-id> -c jobs/train.yaml
+#
+# Everything you normally edit is in cmd: the first word after run.py is the
+# branch to clone, the rest are train.py (hydra) overrides. jobs/run.py is the
+# job's entry point and is uploaded automatically - no `inputs` section needed.
+#
+# Keep every line of cmd at the same indentation. A YAML `>` block folds
+# equally-indented lines into one line with spaces, but preserves the newlines
+# of any line indented deeper - which would silently split the command and run
+# train.py with no overrides at all.
+name: nvpdyf-30-boxheavy
+desc: box 7.5 -> 10.0 at imgsz=960, one axis against run 14
+
+cmd: >
+  python3 jobs/run.py master
+  datasets.input_dir=data
+  trainer.device=0
+  trainer.imgsz=960
+  trainer.batch=16
+  trainer.workers=8
+  augment=default
+  loss=box_heavy
+  trainer.eval_zero_shot=false
+  trainer.run_name=30_boxheavy-imgsz960_yolov8n_nvpdyf
+
+outputs:
+  - artifacts.tgz # the whole saved/ tree; unpack with `tar xzf artifacts.tgz`
+
+flags:
+  - attach-project-disk # mounts the project storage read-only at $DS_PROJECT_HOME
+
+env:
+  vars:
+    - PYTHONUNBUFFERED: 1
+  python:
+    type: manual
+    version: "3.10"
+    # jobs/requirements.txt, not the root one: the CLI parses every line
+    # as a pip requirement and chokes on '#' comments.
+    requirements-file: jobs/requirements.txt
+
+cloud-instance-types:
+  - g1.1
+
+# The working directory sits on the system disk: ~20 GB, not guaranteed.
+# If the dataset copy dies on "no space left", uncomment this (min 100 GB,
+# billed as storage - pennies for a few hours).
+# working-storage:
+#   type: SSD
+#   size: 100Gb

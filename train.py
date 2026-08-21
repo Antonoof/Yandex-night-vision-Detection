@@ -15,11 +15,12 @@ import hydra
 from hydra.utils import instantiate
 
 from src.datasets import bdd100k
-from src.logger import log_evaluation_run, setup_logging
-from src.metrics import evaluate_detector, print_results
+from src.logger import CometRunLogger, log_evaluation_run, setup_logging
+from src.metrics import PeriodicNightDayEval, evaluate_detector, print_results
 from src.model import log_head_info
-from src.utils.init_utils import resolve_device, set_random_seed
+from src.utils.init_utils import as_torch_device, resolve_device, set_random_seed
 from src.utils.io_utils import ROOT_PATH
+from src.utils.visualize import draw_comparison
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -68,9 +69,38 @@ def main(config):
         {r["name"] for r in train_used} & {r["name"] for r in val_records}
     ), "the same frame is present in both train and val!"
 
+    # Image preprocessing (e.g. Zero-DCE low-light enhancement) is applied once,
+    # here, while the training view of the dataset is written - not inside the
+    # dataloader. The enhanced frames land on disk as ordinary uint8 JPEGs, so
+    # ultralytics' own preprocessing stays untouched; feeding it the [0, 1]
+    # float tensors the transform returns would darken every frame ~255x and
+    # never raise. Boxes need no adjustment: the transform is per-pixel.
+    transform = None
+    transform_cfg = config.preprocess.transform
+    if transform_cfg is not None:
+        # only pass what this particular transform declares: the control
+        # transform has neither weights nor a device.
+        overrides = {}
+        if "weights_path" in transform_cfg:
+            overrides["weights_path"] = str(ROOT_PATH / transform_cfg.weights_path)
+        if "device" in transform_cfg:
+            overrides["device"] = as_torch_device(device)
+        transform = instantiate(transform_cfg, **overrides)
+        logger.info(
+            "препроцессинг: %s (apply_to=%s, jpeg q=%s)",
+            config.preprocess.name,
+            config.preprocess.apply_to,
+            config.preprocess.jpeg_quality,
+        )
+
     data_yaml = bdd100k.build_yolo_dataset(
-        {"train": train_used, "val": val_records}, ROOT_PATH / config.datasets.work_dir
+        {"train": train_used, "val": val_records},
+        ROOT_PATH / config.datasets.work_dir,
+        transform=transform,
+        apply_to=config.preprocess.apply_to,
+        jpeg_quality=config.preprocess.jpeg_quality,
     )
+    transform = None  # done with it: free the enhancement net before training
 
     night_records = [r for r in val_records if r["timeofday"] == "night"]
     day_records = [r for r in val_records if r["timeofday"] == "daytime"]
@@ -123,54 +153,120 @@ def main(config):
             enabled=USE_COMET,
         )
 
-    # fresh COCO weights: if eval_zero_shot ran, "pretrained" was already
-    # touched by inference, so we reload the model before training
-    model = instantiate(config.model)
-    results = model.train(
-        data=str(data_yaml),
-        epochs=config.trainer.epochs,
-        imgsz=config.trainer.imgsz,
-        batch=config.trainer.batch,
-        freeze=config.trainer.freeze or None,
-        seed=config.trainer.seed,
-        device=device,
-        project=str(ROOT_PATH / config.trainer.save_dir),
-        name=config.trainer.run_name,
-        exist_ok=True,
-        patience=config.trainer.patience,
-        workers=config.trainer.workers,
-        verbose=True,
-        **config.augment,
-    )
+    # One experiment for the whole fine-tuning run: the per-epoch curves
+    # (losses, lr, grad_norm, per-class AP/R) and the final night/day
+    # metrics belong together, otherwise neither half can be read alone.
+    tags = ["stage:baseline", "method:finetune-head"]
+    if config.preprocess.name != "none":
+        tags = ["stage:preproc", f"method:{config.preprocess.name}"]
 
-    weights_save_dir = getattr(results, "save_dir", None) or model.trainer.save_dir
-    best_weights = Path(weights_save_dir) / "weights" / "best.pt"
-    logger.info("best checkpoint: %s", best_weights)
-
-    best = instantiate(config.model, weights=str(best_weights))
-    ft_night = evaluate_detector(
-        best, night_records, desc="fine-tuned night", **eval_kwargs
-    )
-    ft_day = evaluate_detector(best, day_records, desc="fine-tuned day", **eval_kwargs)
-    print_results(
-        "B. FINE-TUNED: YOLO with a new head, fine-tuned on BDD100K", ft_night, ft_day
-    )
-
-    log_evaluation_run(
-        "01_finetune",
-        ["stage:baseline", "method:finetune-head"],
-        ft_night,
-        ft_day,
+    with CometRunLogger(
+        config.trainer.run_name,
+        tags,
         {
             "model": config.model.weights,
+            "preprocess": config.preprocess.name,
+            "preprocess_apply_to": config.preprocess.apply_to,
             "epochs": config.trainer.epochs,
             "batch": config.trainer.batch,
+            "imgsz": config.trainer.imgsz,
             "freeze": config.trainer.freeze,
+            "seed": config.trainer.seed,
+            "n_train": len(train_used),
+            "n_val_night": len(night_records),
+            "n_val_day": len(day_records),
+            **{f"loss.{k}": v for k, v in config.loss.items()},
+            **{f"augment.{k}": v for k, v in config.augment.items()},
         },
         project_name=config.writer.project_name,
         dataset_version=config.writer.dataset_version,
         enabled=USE_COMET,
-    )
+    ) as comet_run:
+        # fresh COCO weights: if eval_zero_shot ran, "pretrained" was already
+        # touched by inference, so we reload the model before training
+        model = instantiate(config.model)
+        comet_run.attach(model)
+
+        # Night/day mAP while training: ultralytics logs one aggregate mAP per
+        # epoch, which cannot show the gap this project is about. Failures in
+        # here are swallowed - a side metric must not kill a multi-hour run.
+        periodic = PeriodicNightDayEval(
+            night_records,
+            day_records,
+            every_k=config.trainer.eval_every_k_epochs,
+            eval_kwargs=eval_kwargs,
+            comet_run=comet_run,
+            save_dir=save_dir,
+            n_samples=config.trainer.num_visualization_samples,
+            viz_conf=config.trainer.visualization_conf,
+        )
+        periodic.attach(model)
+
+        results = model.train(
+            data=str(data_yaml),
+            epochs=config.trainer.epochs,
+            imgsz=config.trainer.imgsz,
+            batch=config.trainer.batch,
+            freeze=config.trainer.freeze or None,
+            seed=config.trainer.seed,
+            device=device,
+            project=str(ROOT_PATH / config.trainer.save_dir),
+            name=config.trainer.run_name,
+            exist_ok=True,
+            patience=config.trainer.patience,
+            workers=config.trainer.workers,
+            verbose=True,
+            **config.loss,
+            **config.augment,
+        )
+
+        weights_save_dir = getattr(results, "save_dir", None) or model.trainer.save_dir
+        best_weights = Path(weights_save_dir) / "weights" / "best.pt"
+        logger.info("best checkpoint: %s", best_weights)
+
+        best = instantiate(config.model, weights=str(best_weights))
+        # proof that the head was rebuilt: nc goes 80 (COCO) -> 8 (ours), and
+        # the cv3 branch's output channels follow. Compare with the head dump
+        # logged above for the pretrained model.
+        log_head_info(best)
+
+        ft_night = evaluate_detector(
+            best, night_records, desc="fine-tuned night", **eval_kwargs
+        )
+        ft_day = evaluate_detector(
+            best, day_records, desc="fine-tuned day", **eval_kwargs
+        )
+        print_results(
+            "B. FINE-TUNED: YOLO with a new head, fine-tuned on BDD100K",
+            ft_night,
+            ft_day,
+        )
+
+        comet_run.log_eval("night", ft_night)
+        comet_run.log_eval("day", ft_day)
+
+        # Разбор ошибок глазами: метрики говорят, ЧТО просело, а картинки —
+        # почему именно (пропуск / рамка мимо / ложное срабатывание на блике).
+        # Кадры фиксированные (первые по имени), поэтому их можно сравнивать
+        # между запусками; случайная выборка такого не позволяет.
+        n_samples = config.trainer.num_visualization_samples
+        for split, split_records in (("night", night_records), ("day", day_records)):
+            samples = sorted(split_records, key=lambda r: r["name"])[:n_samples]
+            if not samples:
+                logger.info("нет кадров '%s' для отрисовки, пропускаю", split)
+                continue
+            figure = Path(weights_save_dir) / f"predictions_{split}.png"
+            draw_comparison(
+                best,
+                samples,
+                figure,
+                imgsz=config.trainer.imgsz,
+                conf=config.trainer.visualization_conf,
+                device=device,
+                title=split,
+            )
+            comet_run.log_image(figure, f"predictions_{split}")
+            logger.info("сохранено: %s", figure)
 
     metrics = {"fine-tuned/night": ft_night, "fine-tuned/day": ft_day}
     if config.trainer.eval_zero_shot:
@@ -178,6 +274,7 @@ def main(config):
 
     summary = {
         "dataset_version": config.writer.dataset_version,
+        "preprocess": config.preprocess.name,
         "model": config.model.weights,
         "imgsz": config.trainer.imgsz,
         "epochs": config.trainer.epochs,
@@ -190,6 +287,7 @@ def main(config):
             "val_day": len(day_records),
         },
         "metrics": metrics,
+        "per_epoch_night_day": periodic.history,
     }
     results_path = Path(weights_save_dir) / "results.json"
     results_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
