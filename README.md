@@ -80,6 +80,42 @@ separate file because the YOLO format has nowhere to put it.
 (default `data/bdd_yolo`): `max_train_images` may have dropped frames, and
 the source tree also holds `test/`, which training must never see.
 
+### nvpdyf-bdd100k (EDA baseline)
+
+`nvpdyf-bdd100k` (mounted at `/kaggle/input/nvpdyf-bdd100k` on Kaggle) is a
+newer version of the same data, already pre-converted to the YOLO layout
+(`images/{train,val,test}`, `labels/{train,val,test}`, `data.yaml`,
+7 classes) - so no conversion step is needed for it, unlike the dataset
+above. `src/datasets/nvpdyf_bdd100k.py` just locates it, parses the label
+files, and computes EDA stats (class distribution, class imbalance,
+objects/image, box size and aspect ratio - overall and split by day/night,
+day/night distribution, resolution check, missing/empty/orphan label
+checks). [`dataset_baseline.ipynb`](dataset_baseline.ipynb) walks through
+that plus drawing a couple of ground-truth scenes (including one explicit
+day/night pair) - open it for the class-balance/data-quality picture before
+training against this dataset version.
+
+The original YOLO-format dataset didn't record per-image day/night, so a
+sidecar `timeofday.csv` (`image,timeofday`, e.g.
+`train/0000f77c-6257be58.jpg,night`) was added afterwards to fill that gap.
+`find_timeofday_csv` searches for it the same recursive way
+`find_dataset_root` searches for `data.yaml` - it doesn't have to live in
+any particular spot under `input_dir`. Everything still works without it,
+just without a day/night breakdown.
+
+**Known duplication:** the `origin/nvpdyf-dataset-loader` branch (not yet
+merged) rewrote `src/datasets/bdd100k.py` itself to read this same dataset -
+since `train.py`/`inference.py`/`metrics` already import from there, that's
+the module anything training/evaluation-related should use. This EDA module
+stays separate for now rather than depending on an unmerged branch, and the
+two disagree on more than style: that branch's loader requires
+`timeofday.csv` and treats it as the source of truth for split membership
+(an image missing a row is invisible to training), while this module treats
+`images/` as the source of truth and falls back to `unknown` for missing
+rows. Revisit once that branch merges - either retire this module and point
+`dataset_baseline.ipynb` at the merged `bdd100k.py`, or keep both but make
+that divergence a deliberate, documented choice instead of an accident.
+
 ## How To Use
 
 To train (fine-tune the YOLO head and evaluate night vs. day), run:
